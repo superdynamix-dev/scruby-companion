@@ -1,0 +1,14 @@
+{
+    "Layers": [
+        {
+            "Files": [
+                "Sounds/prestige_battle_music.ogg"
+            ],
+            "Looping": true,
+            "Volume": 0.0
+        }
+    ],
+    "Volume": -4.0,
+    "PreventSoundInterruption": false,
+    "MusicDuckingVolume": -6.0
+}

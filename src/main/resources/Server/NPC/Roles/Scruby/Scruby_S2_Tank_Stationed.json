@@ -1,0 +1,21 @@
+{
+  "Type": "Variant",
+  "Reference": "Template_Scruby_Defensive",
+  "Modify": {
+    "Appearance": "Skeleton_Knight",
+    "Weapons": ["Weapon_Sword_Steel_Rusty"],
+    "OffHand": ["Weapon_Shield_Rusty"],
+    "Attack": "Root_NPC_Skeleton_Knight_Attack",
+    "FlockArray": [],
+    "AttackDistance": 3,
+    "DesiredAttackDistanceRange": [2, 2.5],
+    "CombatBehaviorDistance": 5,
+    "MaxHealth": 80,
+    "BlockAbility": "Shield_Block",
+    "BlockProbability": 50,
+    "DespawnTimer": 9999,
+    "DisableDamageGroups": ["Self", "Player"],
+    "NameTranslationKey": "server.npcRoles.Skeleton_Archer.name",
+    "EnableFlockPlayerDespawn": false
+  }
+}

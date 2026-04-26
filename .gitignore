@@ -1,0 +1,58 @@
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### Hytale ###
+run/
+vendor/hytale/assets/
+vendor/hytale/reference-assets/
+vendor/hytale/libs/*.jar
+vendor/hytale/libs/HyUI-*/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Claude Code ###
+.claude/
+
+### Misc ###
+*.zip
+.DS_Store
+.worktrees/ 
+
+.superpowers/
+
+### Local backups & VPS deploy (private) ###
+BACKUP/
+deploy-vps.ps1

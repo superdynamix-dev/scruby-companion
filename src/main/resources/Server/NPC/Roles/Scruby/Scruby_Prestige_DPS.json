@@ -1,0 +1,21 @@
+{
+  "Type": "Variant",
+  "Reference": "Template_Scruby_Defensive",
+  "Modify": {
+    "Appearance": "Skeleton_Burnt_Gunner",
+    "Weapons": ["Weapon_Gun_Blunderbuss_Rusty"],
+    "Attack": "Skeleton_Burnt_Gunner_Gun_Shoot",
+    "FlockArray": ["Scruby_S1_Base","Scruby_S1_DPS","Scruby_S1_Healer","Scruby_S1_Tank","Scruby_S2_DPS","Scruby_S2_Healer","Scruby_S2_Tank","Scruby_S3_DPS","Scruby_S3_Healer","Scruby_S3_Tank","Scruby_Prestige_DPS","Scruby_Prestige_Healer","Scruby_Prestige_Tank","Scruby_Archer_Test"],
+    "AttackDistance": 15,
+    "DesiredAttackDistanceRange": [5, 14.5],
+    "CombatBehaviorDistance": 15,
+    "CombatBackOffAfterAttack": false,
+    "CombatFleeIfTooCloseDistance": 4,
+    "TargetRange": 15,
+    "MaxHealth": 100,
+    "DespawnTimer": 9999,
+    "DisableDamageGroups": ["Self", "Player"],
+    "NameTranslationKey": "server.npcRoles.Skeleton_Burnt_Gunner.name",
+    "EnableFlockPlayerDespawn": false
+  }
+}

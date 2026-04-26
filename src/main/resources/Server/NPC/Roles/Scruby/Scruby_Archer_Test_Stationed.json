@@ -1,0 +1,18 @@
+{
+  "Type": "Variant",
+  "Reference": "Template_Scruby_Defensive",
+  "Modify": {
+    "Appearance": "Skeleton_Archer",
+    "Weapons": ["Weapon_Shortbow_Iron_Rusty"],
+    "Attack": "Skeleton_Archer_Bow_Shoot",
+    "FlockArray": [],
+    "AttackDistance": 15,
+    "DesiredAttackDistanceRange": [5, 14.5],
+    "CombatBehaviorDistance": 15,
+    "MaxHealth": 50,
+    "DespawnTimer": 9999,
+    "DisableDamageGroups": ["Self", "Player"],
+    "NameTranslationKey": "server.npcRoles.Skeleton_Archer.name",
+    "EnableFlockPlayerDespawn": false
+  }
+}

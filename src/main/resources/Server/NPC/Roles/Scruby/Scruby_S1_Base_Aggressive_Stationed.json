@@ -1,0 +1,20 @@
+{
+  "Type": "Variant",
+  "Reference": "Template_Scruby_Aggressive_Stationed",
+  "Modify": {
+    "Appearance": "Skeleton_Fighter",
+    "Weapons": ["Weapon_Club_Iron_Rusty"],
+    "Attack": "Root_NPC_Skeleton_Fighter_Attack",
+    "FlockArray": [],
+    "AttackDistance": 2.5,
+    "CombatBehaviorDistance": 20,
+    "ViewRange": 20,
+    "AbsoluteDetectionRange": 20,
+    "MaxHealth": 40,
+    "RunThreshold": 1.0,
+    "DespawnTimer": 9999,
+    "DisableDamageGroups": ["Self", "Player"],
+    "NameTranslationKey": "server.npcRoles.Skeleton_Archer.name",
+    "EnableFlockPlayerDespawn": false
+  }
+}

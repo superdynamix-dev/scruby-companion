@@ -1,0 +1,18 @@
+{
+  "Type": "Variant",
+  "Reference": "Template_Scruby_Defensive",
+  "Modify": {
+    "Appearance": "Skeleton_Burnt_Wizard",
+    "Weapons": ["Weapon_Staff_Wizard"],
+    "Attack": "Skeleton_Archmage_Staff_Corruption_Orb",
+    "FlockArray": [],
+    "AttackDistance": 15,
+    "DesiredAttackDistanceRange": [5, 15],
+    "CombatBehaviorDistance": 15,
+    "MaxHealth": 110,
+    "DespawnTimer": 9999,
+    "DisableDamageGroups": ["Self", "Player"],
+    "NameTranslationKey": "server.npcRoles.Skeleton_Burnt_Wizard.name",
+    "EnableFlockPlayerDespawn": false
+  }
+}

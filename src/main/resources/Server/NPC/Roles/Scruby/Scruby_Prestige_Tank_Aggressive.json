@@ -1,0 +1,23 @@
+{
+  "Type": "Variant",
+  "Reference": "Template_Scruby_Aggressive",
+  "Modify": {
+    "Appearance": "Skeleton_Burnt_Knight",
+    "Weapons": ["Weapon_Sword_Steel_Rusty"],
+    "OffHand": ["Weapon_Shield_Rusty"],
+    "Attack": "Root_NPC_Skeleton_Knight_Attack",
+    "FlockArray": ["Scruby_S1_Base","Scruby_S1_Base_Aggressive","Scruby_Prestige_Tank_Aggressive","Scruby_S1_DPS","Scruby_S1_Healer","Scruby_S1_Tank","Scruby_S2_DPS","Scruby_S2_Healer","Scruby_S2_Tank","Scruby_S3_DPS","Scruby_S3_Healer","Scruby_S3_Tank","Scruby_Prestige_DPS","Scruby_Prestige_Healer","Scruby_Prestige_Tank","Scruby_Archer_Test"],
+    "AttackDistance": 3,
+    "DesiredAttackDistanceRange": [2, 2.5],
+    "CombatBehaviorDistance": 20,
+    "ViewRange": 20,
+    "AbsoluteDetectionRange": 20,
+    "MaxHealth": 160,
+    "BlockAbility": "Shield_Block",
+    "BlockProbability": 65,
+    "DespawnTimer": 9999,
+    "DisableDamageGroups": ["Self", "Player"],
+    "NameTranslationKey": "server.npcRoles.Skeleton_Burnt_Knight.name",
+    "EnableFlockPlayerDespawn": false
+  }
+}

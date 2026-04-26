@@ -1,0 +1,20 @@
+{
+  "Type": "Variant",
+  "Reference": "Template_Scruby_Aggressive",
+  "Modify": {
+    "Appearance": "Skeleton_Archmage",
+    "Weapons": ["Weapon_Staff_Wood_Rotten"],
+    "Attack": "Skeleton_Archmage_Staff_Corruption_Orb",
+    "FlockArray": ["Scruby_S1_Base","Scruby_S1_Base_Aggressive","Scruby_S3_Healer_Aggressive","Scruby_S1_DPS","Scruby_S1_Healer","Scruby_S1_Tank","Scruby_S2_DPS","Scruby_S2_Healer","Scruby_S2_Tank","Scruby_S3_DPS","Scruby_S3_Healer","Scruby_S3_Tank","Scruby_Archer_Test"],
+    "AttackDistance": 15,
+    "DesiredAttackDistanceRange": [5, 15],
+    "CombatBehaviorDistance": 20,
+    "ViewRange": 20,
+    "AbsoluteDetectionRange": 20,
+    "MaxHealth": 90,
+    "DespawnTimer": 9999,
+    "DisableDamageGroups": ["Self", "Player"],
+    "NameTranslationKey": "server.npcRoles.Skeleton_Archer.name",
+    "EnableFlockPlayerDespawn": false
+  }
+}

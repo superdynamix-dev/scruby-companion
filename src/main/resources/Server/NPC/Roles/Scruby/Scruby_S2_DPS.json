@@ -1,0 +1,18 @@
+{
+  "Type": "Variant",
+  "Reference": "Template_Scruby_Defensive",
+  "Modify": {
+    "Appearance": "Skeleton_Archer",
+    "Weapons": ["Weapon_Shortbow_Iron_Rusty"],
+    "Attack": "Skeleton_Archer_Bow_Shoot",
+    "FlockArray": ["Scruby_S1_Base","Scruby_S1_DPS","Scruby_S1_Healer","Scruby_S1_Tank","Scruby_S2_DPS","Scruby_S2_Healer","Scruby_S2_Tank","Scruby_S3_DPS","Scruby_S3_Healer","Scruby_S3_Tank","Scruby_Archer_Test"],
+    "AttackDistance": 15,
+    "DesiredAttackDistanceRange": [5, 14.5],
+    "CombatBehaviorDistance": 15,
+    "MaxHealth": 60,
+    "DespawnTimer": 9999,
+    "DisableDamageGroups": ["Self", "Player"],
+    "NameTranslationKey": "server.npcRoles.Skeleton_Archer.name",
+    "EnableFlockPlayerDespawn": false
+  }
+}
