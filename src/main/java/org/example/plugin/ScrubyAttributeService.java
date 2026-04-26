@@ -15,10 +15,10 @@ import java.util.UUID;
 /**
  * Service for distributing and applying attribute points.
  *
- * Vitality: +4 MaxHealth per point (ADDITIVE on Health stat MAX).
- *   At 30 points all-in: +120 HP — roughly doubles a 100-HP base.
+ * Vitality: +8 MaxHealth per point (ADDITIVE on Health stat MAX).
+ *   At 30 points all-in: +240 HP.
  *
- * Strength: +4% Damage per point on real damage events from the Scruby NPC.
+ * Strength: +6% Damage per point on real damage events from the Scruby NPC.
  *   Cached per owner via ScrubyActiveCompanionRegistry and applied in
  *   ScrubyDamageBuffSystem (FilterDamageGroup). Skill-burst stat mutations
  *   in ScrubySkillTickingSystem bypass the damage pipeline intentionally
@@ -38,7 +38,7 @@ public final class ScrubyAttributeService {
     // private static final String MODIFIER_ZEAL = "scruby_attr_zeal";          // TODO: no stat key
     private static final String MODIFIER_ARMOR = "scruby_armor_hp";
 
-    private static final float HP_PER_VITALITY_POINT = 4.0f;
+    private static final float HP_PER_VITALITY_POINT = 8.0f;
 
     private final ScrubyArmorService armorService;
     private final ScrubyActiveCompanionRegistry registry;
@@ -136,7 +136,7 @@ public final class ScrubyAttributeService {
     }
 
     public float calculateDmgBonus(int strength) {
-        return strength * 0.04f;
+        return strength * 0.06f;
     }
 
     public float calculateCdReduction(int zeal) {

@@ -33,6 +33,11 @@ public final class ScrubyXPSystem extends TickingSystem<EntityStore> {
     private static final double PROXIMITY_CLOSE_SQ = 10.0 * 10.0;
     private static final double PROXIMITY_MID_SQ   = 20.0 * 20.0;
 
+    /** Backoff before retrying a deferred respawn entry (multi-world tick race). */
+    private static final long RESPAWN_DEFER_BACKOFF_MS = 200L;
+    /** Drop deferred respawns this long after their original ready time. */
+    private static final long RESPAWN_MAX_DEFER_MS = 60_000L;
+
     private static final int PATH_REQUIRED_LEVEL = 5;
     private static final long PATH_WARNING_COOLDOWN_MS = 60_000L;
 
@@ -128,7 +133,24 @@ public final class ScrubyXPSystem extends TickingSystem<EntityStore> {
             EntityStore entityStore = store.getExternalData();
             Ref<EntityStore> ownerRef = entityStore.getRefFromUUID(pendingOwner);
             if (ownerRef == null || !ownerRef.isValid()) {
-                LOGGER.atInfo().log("[Scruby] Respawn skipped — owner not found. Owner=" + pendingOwner);
+                // The respawn queue is shared across all worlds; this system ticks per world.
+                // If a non-owner world's tick polled the entry first, the owner won't be in
+                // this store. Re-enqueue with a short backoff so the owner's world picks it
+                // up. Drop after MAX_DEFER_MS; ScrubyPlayerLifecycleListener.respawn-
+                // StationedCompanions is the safety net on player rejoin.
+                long now = System.currentTimeMillis();
+                long ageSinceReady = now - entry.respawnAtMs();
+                if (ageSinceReady < RESPAWN_MAX_DEFER_MS) {
+                    pendingRespawnQueue.enqueue(pendingOwner,
+                            now + RESPAWN_DEFER_BACKOFF_MS,
+                            entry.facingPlayer());
+                    LOGGER.atInfo().log("[Scruby] Respawn deferred — owner not in this store. Owner="
+                            + pendingOwner + " ageMs=" + ageSinceReady);
+                } else {
+                    LOGGER.atInfo().log("[Scruby] Respawn dropped — owner unreachable for "
+                            + ageSinceReady + "ms. Owner=" + pendingOwner
+                            + ". Stationed companions auto-respawn on player rejoin.");
+                }
                 continue;
             }
 

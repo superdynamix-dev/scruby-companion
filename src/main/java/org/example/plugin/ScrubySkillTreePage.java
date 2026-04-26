@@ -2261,15 +2261,12 @@ public final class ScrubySkillTreePage {
             } catch (Exception ignored) {}
         }
 
-        // Language selector
+        // Language selector — applies to all profiles in the binding so that
+        // /scruby-switch and other slot changes preserve the player's language.
         tryAddListener(builder, "lang-de", ignored -> {
             ScrubyOwnerBindingComponent b = bindingService.getBindingOrNull(store, ownerRef);
             if (b != null) {
-                CompanionProfile prof = b.getActiveProfile();
-                if (prof != null) {
-                    prof.setLocale("de");
-                    b.setActiveProfile(prof);
-                }
+                applyLocaleToAllProfiles(b, "de");
             }
             reopenScrubys(store, ownerRef, playerRef);
         });
@@ -2277,14 +2274,27 @@ public final class ScrubySkillTreePage {
         tryAddListener(builder, "lang-en", ignored -> {
             ScrubyOwnerBindingComponent b = bindingService.getBindingOrNull(store, ownerRef);
             if (b != null) {
-                CompanionProfile prof = b.getActiveProfile();
-                if (prof != null) {
-                    prof.setLocale("en");
-                    b.setActiveProfile(prof);
-                }
+                applyLocaleToAllProfiles(b, "en");
             }
             reopenScrubys(store, ownerRef, playerRef);
         });
+    }
+
+    /**
+     * Sets the locale on every profile in the binding. Locale is conceptually
+     * player-wide (like hudPosition / muteFlags) but lives on CompanionProfile
+     * for historical reasons; syncing all profiles keeps the language stable
+     * across /scruby-switch and slot changes.
+     */
+    private static void applyLocaleToAllProfiles(
+            @Nonnull ScrubyOwnerBindingComponent binding,
+            @Nonnull String locale
+    ) {
+        java.util.List<CompanionProfile> profiles = binding.getProfiles();
+        for (CompanionProfile p : profiles) {
+            p.setLocale(locale);
+        }
+        binding.setProfiles(profiles);
     }
 
     // ===== Inventory Listeners =====
@@ -4023,11 +4033,11 @@ public final class ScrubySkillTreePage {
         sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
 
         // Three attribute cards
-        sb.append(attrCard(ScrubyLang.get(locale, "ui.attr.vitality"), ScrubyLang.get(locale, "ui.attr.hp", draft.vit * 4),
+        sb.append(attrCard(ScrubyLang.get(locale, "ui.attr.vitality"), ScrubyLang.get(locale, "ui.attr.hp", draft.vit * 8),
                 draft.vit, draft.savedVit, draft.remaining,
                 ScrubyColors.VIT_COLOR, ScrubyColors.VIT_BG, "@AttrVitBtnBg", "vit"));
         sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
-        sb.append(attrCard(ScrubyLang.get(locale, "ui.attr.strength"), ScrubyLang.get(locale, "ui.attr.dmg", draft.str * 4),
+        sb.append(attrCard(ScrubyLang.get(locale, "ui.attr.strength"), ScrubyLang.get(locale, "ui.attr.dmg", draft.str * 6),
                 draft.str, draft.savedStr, draft.remaining,
                 ScrubyColors.STR_COLOR, ScrubyColors.STR_BG, "@AttrStrBtnBg", "str"));
         sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
@@ -4191,7 +4201,7 @@ public final class ScrubySkillTreePage {
         String all = allAbilities(profile);
 
         // Max-HP: base 40 + vit bonus + skill bonuses
-        int vitBonus = draft.vit * 4;
+        int vitBonus = draft.vit * 8;
         if (all.contains(ScrubySkillService.TANK_DICKER_PELZ))   vitBonus += 16;
         if (all.contains(ScrubySkillService.TANK_W1A_EISENHAUT)) vitBonus += 10;
         int maxHp = 40 + vitBonus;
@@ -4227,7 +4237,7 @@ public final class ScrubySkillTreePage {
         sb.append(statRow(ScrubyLang.get(locale, "ui.stats.maxhp"), String.valueOf(maxHp),
                 vitChanged ? "#ff8888" : ScrubyColors.VIT_COLOR, "stat-hp"));
         sb.append(statSep());
-        sb.append(statRow(ScrubyLang.get(locale, "ui.stats.damage"), "+" + (draft.str * 4) + "%",
+        sb.append(statRow(ScrubyLang.get(locale, "ui.stats.damage"), "+" + (draft.str * 6) + "%",
                 strChanged ? "#ffdd66" : ScrubyColors.STR_COLOR, "stat-dmg"));
         sb.append(statSep());
         sb.append(statRow(ScrubyLang.get(locale, "ui.stats.cooldown"), "-" + (draft.zel * 3) + "%",
@@ -4520,8 +4530,8 @@ public final class ScrubySkillTreePage {
             context.getById("zel-val", LabelBuilder.class).ifPresent(l -> l.withText(String.valueOf(draft.zel)));
 
             // Sublabels
-            context.getById("vit-sub", LabelBuilder.class).ifPresent(l -> l.withText(ScrubyLang.get(locale, "ui.attr.hp", draft.vit * 4)));
-            context.getById("str-sub", LabelBuilder.class).ifPresent(l -> l.withText(ScrubyLang.get(locale, "ui.attr.dmg", draft.str * 4)));
+            context.getById("vit-sub", LabelBuilder.class).ifPresent(l -> l.withText(ScrubyLang.get(locale, "ui.attr.hp", draft.vit * 8)));
+            context.getById("str-sub", LabelBuilder.class).ifPresent(l -> l.withText(ScrubyLang.get(locale, "ui.attr.dmg", draft.str * 6)));
             context.getById("zel-sub", LabelBuilder.class).ifPresent(l -> l.withText(ScrubyLang.get(locale, "ui.attr.cd", draft.zel * 3)));
 
             // Remaining points
@@ -4531,12 +4541,12 @@ public final class ScrubySkillTreePage {
 
             // Stats
             String all = allAbilities(profile);
-            int vb = draft.vit * 4;
+            int vb = draft.vit * 8;
             if (all.contains(ScrubySkillService.TANK_DICKER_PELZ))   vb += 16;
             if (all.contains(ScrubySkillService.TANK_W1A_EISENHAUT)) vb += 10;
             final int maxHp = 40 + vb;
             context.getById("stat-hp", LabelBuilder.class).ifPresent(l -> l.withText(String.valueOf(maxHp)));
-            context.getById("stat-dmg", LabelBuilder.class).ifPresent(l -> l.withText("+" + (draft.str * 4) + "%"));
+            context.getById("stat-dmg", LabelBuilder.class).ifPresent(l -> l.withText("+" + (draft.str * 6) + "%"));
             context.getById("stat-cd", LabelBuilder.class).ifPresent(l -> l.withText("-" + (draft.zel * 3) + "%"));
 
             // Toggle confirm button appearance — text + style swap (visibility/display unreliable in HyUI)

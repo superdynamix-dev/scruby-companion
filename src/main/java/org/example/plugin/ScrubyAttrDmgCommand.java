@@ -11,6 +11,7 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 
 import javax.annotation.Nonnull;
 import java.util.Objects;
+import java.util.UUID;
 
 public final class ScrubyAttrDmgCommand extends AbstractPlayerCommand {
 
@@ -20,14 +21,17 @@ public final class ScrubyAttrDmgCommand extends AbstractPlayerCommand {
     }
 
     private final ScrubyBindingService bindingService;
+    private final ScrubyActiveCompanionRegistry registry;
     private final ScrubyAttributeService attributeService;
 
     public ScrubyAttrDmgCommand(
             @Nonnull ScrubyBindingService bindingService,
+            @Nonnull ScrubyActiveCompanionRegistry registry,
             @Nonnull ScrubyAttributeService attributeService
     ) {
         super("scruby-attr-dmg", "Add one Strength point to your companion.");
         this.bindingService = Objects.requireNonNull(bindingService, "bindingService");
+        this.registry = Objects.requireNonNull(registry, "registry");
         this.attributeService = Objects.requireNonNull(attributeService, "attributeService");
     }
 
@@ -58,6 +62,12 @@ public final class ScrubyAttrDmgCommand extends AbstractPlayerCommand {
         ScrubyCompanionPlugin.instance().getSoundService().playAttribute(playerRef);
         commandContext.sendMessage(Message.raw(ScrubyLang.get(locale, "cmd.attr.dmg_up",
                 profile.getAttributeStrength(), profile.getAttributePointsAvailable())));
+
+        UUID ownerUuid = playerRef.getUuid();
+        Ref<EntityStore> companionRef = registry.getCompanionRef(ownerUuid);
+        if (companionRef != null && companionRef.isValid()) {
+            attributeService.applyAttributes(store, companionRef, profile, ownerUuid);
+        }
         ScrubyCompanionPlugin.savePlayerAsync(store, ref, playerRef.getUuid());
     }
 }

@@ -167,6 +167,10 @@ public final class ScrubyBindingService {
 
         CompanionProfile newProfile = new CompanionProfile();
         newProfile.setSlotId(freeSlot);
+        // Inherit locale from existing profiles so language stays consistent across slots.
+        if (!profiles.isEmpty()) {
+            newProfile.setLocale(profiles.get(0).getLocale());
+        }
         profiles.add(newProfile);
         binding.setProfiles(profiles);
 

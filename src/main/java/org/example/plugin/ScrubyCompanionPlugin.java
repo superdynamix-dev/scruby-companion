@@ -310,7 +310,7 @@ public class ScrubyCompanionPlugin extends JavaPlugin {
         );
 
         this.getCommandRegistry().registerCommand(
-                new ScrubyAttrDmgCommand(this.bindingService, this.attributeService)
+                new ScrubyAttrDmgCommand(this.bindingService, this.companionRegistry, this.attributeService)
         );
 
         this.getCommandRegistry().registerCommand(

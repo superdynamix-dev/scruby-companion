@@ -503,7 +503,8 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
             profile.setCompanionEntityUuid("");
             profile.setEntityMissing(false);
             profile.setManuallyDespawned(false);
-            profile.setStationedAtBase(false);
+            // Preserve stationedAtBase across death so the respawn drainer
+            // re-spawns at the base via spawnAtStation, not next to the owner.
             profile.setDeathCount(profile.getDeathCount() + 1);
             binding.setActiveProfile(profile);
 

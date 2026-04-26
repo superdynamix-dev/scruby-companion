@@ -18,7 +18,7 @@ import java.util.UUID;
 
 /**
  * Multiplies outgoing damage from Scruby companions by their owner's Strength
- * attribute (+4% per point). Hooked into FilterDamageGroup so it runs after
+ * attribute (+6% per point). Hooked into FilterDamageGroup so it runs after
  * damage is gathered but before it is applied to health — the same stage where
  * Hytale's own armor reduction runs.
  *
@@ -29,7 +29,7 @@ import java.util.UUID;
  */
 public final class ScrubyDamageBuffSystem extends DamageEventSystem {
 
-    private static final float DMG_PER_STRENGTH_POINT = 0.04f;
+    private static final float DMG_PER_STRENGTH_POINT = 0.06f;
 
     private final ScrubyActiveCompanionRegistry registry;
 
