@@ -26,6 +26,8 @@ public final class ScrubyPlayerLifecycleListener {
     private final ScrubyEvolutionService evolutionService;
     private final ScrubyConfigService configService;
     private final ScrubyCombatModeOverrideService combatModeOverrideService;
+    private final ScrubyAttributeService attributeService;
+    private final ScrubySkillService skillService;
 
     public ScrubyPlayerLifecycleListener(
             @Nonnull ScrubyBindingService bindingService,
@@ -35,7 +37,9 @@ public final class ScrubyPlayerLifecycleListener {
             @Nonnull ScrubyHudManager hudManager,
             @Nonnull ScrubyEvolutionService evolutionService,
             @Nonnull ScrubyConfigService configService,
-            @Nonnull ScrubyCombatModeOverrideService combatModeOverrideService
+            @Nonnull ScrubyCombatModeOverrideService combatModeOverrideService,
+            @Nonnull ScrubyAttributeService attributeService,
+            @Nonnull ScrubySkillService skillService
     ) {
         this.bindingService = bindingService;
         this.registry = registry;
@@ -45,6 +49,8 @@ public final class ScrubyPlayerLifecycleListener {
         this.evolutionService = evolutionService;
         this.configService = configService;
         this.combatModeOverrideService = combatModeOverrideService;
+        this.attributeService = attributeService;
+        this.skillService = skillService;
     }
 
     public void onPlayerReady(@Nonnull PlayerReadyEvent event) {
@@ -179,6 +185,14 @@ public final class ScrubyPlayerLifecycleListener {
             UUID ownerUuid = UUID.fromString(ownerUuidString);
             this.resetService.clearLockedTarget(store, companionRef);
             this.registry.register(ownerUuid, companionRef);
+
+            // Re-apply attribute and skill modifiers so balancing changes from a plugin
+            // update take effect on companions already living in the world. Modifiers
+            // are stored on the entity's StatMap and otherwise stay frozen at the values
+            // computed at the last spawn — putModifier replaces by id, so this is a
+            // safe in-place refresh.
+            this.attributeService.applyAttributes(store, companionRef, profile, ownerUuid);
+            this.skillService.applyPassiveSkills(store, companionRef, profile);
 
             ScrubyArmorService.applyVisualArmor(store, companionRef, profile);
             return;

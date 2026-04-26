@@ -175,13 +175,12 @@ public final class ScrubyBaseStationTickingSystem extends TickingSystem<EntitySt
                 // Skip registered companions
                 if (isRegisteredCompanion(ref)) continue;
 
-                // DEBUG: Check if candidate is a Scruby
+                // Skip other Scrubys so stationed companions never target each other
                 NPCEntity candidateNpc = chunk.getComponent(i, NPCEntity.getComponentType());
                 if (candidateNpc != null) {
                     String candidateRole = candidateNpc.getRoleName();
                     if (candidateRole != null && candidateRole.contains("Scruby_")) {
-                        LOGGER.atWarning().log("[Scruby-DEBUG] Station mob-scan found SCRUBY as candidate: " + candidateRole);
-                        continue; // Skip other Scrubys
+                        continue;
                     }
                 }
 

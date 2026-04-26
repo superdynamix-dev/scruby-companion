@@ -221,7 +221,9 @@ public class ScrubyCompanionPlugin extends JavaPlugin {
                         this.hudManager,
                         this.evolutionService,
                         this.configService,
-                        combatModeOverrideService
+                        combatModeOverrideService,
+                        this.attributeService,
+                        this.skillService
                 );
 
         this.getEventRegistry().registerGlobal(
