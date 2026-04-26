@@ -3,19 +3,16 @@ package org.example.plugin;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
-import com.hypixel.hytale.math.vector.Vector3d;
 import com.hypixel.hytale.protocol.InteractionType;
 import com.hypixel.hytale.protocol.Packet;
 import com.hypixel.hytale.protocol.packets.interaction.SyncInteractionChain;
 import com.hypixel.hytale.protocol.packets.interaction.SyncInteractionChains;
 import com.hypixel.hytale.server.core.io.adapter.PlayerPacketFilter;
-import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 
 import javax.annotation.Nonnull;
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -33,12 +30,6 @@ import java.util.UUID;
 public final class ScrubyInteractionHandler implements PlayerPacketFilter {
 
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
-
-    /** Max distance squared from player to Scruby to count as "nearby". 5 blocks. */
-    private static final double INTERACT_DISTANCE_SQ = 5.0 * 5.0;
-
-    /** Dot-product threshold for 180-degree view sector (90° each side). */
-    private static final double VIEW_DOT_THRESHOLD = 0.0;
 
     private final ScrubyBindingService bindingService;
     private final ScrubyActiveCompanionRegistry registry;
@@ -60,14 +51,14 @@ public final class ScrubyInteractionHandler implements PlayerPacketFilter {
             return false;
         }
 
-        boolean hasUse = false;
+        SyncInteractionChain useChain = null;
         for (SyncInteractionChain chain : syncPacket.updates) {
             if (chain.interactionType == InteractionType.Use) {
-                hasUse = true;
+                useChain = chain;
                 break;
             }
         }
-        if (!hasUse) return false;
+        if (useChain == null) return false;
 
         Ref<EntityStore> ownerRef;
         try {
@@ -86,9 +77,10 @@ public final class ScrubyInteractionHandler implements PlayerPacketFilter {
         }
         if (world == null) return false;
 
+        final SyncInteractionChain capturedChain = useChain;
         world.execute(() -> {
             try {
-                handleUse(store, ownerRef, playerRef);
+                handleUse(store, ownerRef, playerRef, capturedChain);
             } catch (Exception e) {
                 LOGGER.atInfo().log("[Scruby-Interact] Error handling F press: " + e.getMessage());
             }
@@ -100,52 +92,61 @@ public final class ScrubyInteractionHandler implements PlayerPacketFilter {
     private void handleUse(
             @Nonnull Store<EntityStore> store,
             @Nonnull Ref<EntityStore> ownerRef,
-            @Nonnull PlayerRef playerRef
+            @Nonnull PlayerRef playerRef,
+            @Nonnull SyncInteractionChain useChain
     ) {
+        com.hypixel.hytale.protocol.InteractionChainData chainData = useChain.data;
+        if (chainData == null) return;
+
+        // The Use chain's entityId is the network id of whatever the client's raycast
+        // selected when the player pressed F. <= 0 means no entity hit (block/air).
+        int targetNetworkId = chainData.entityId;
+        if (targetNetworkId <= 0) return;
+
+        EntityStore entityStore = store.getExternalData();
+        Ref<EntityStore> targetRef;
+        try {
+            targetRef = entityStore.getRefFromNetworkId(targetNetworkId);
+        } catch (Throwable t) {
+            return;
+        }
+        if (targetRef == null || !targetRef.isValid()) return;
+        if (targetRef.getStore() != store) return;
+
         ScrubyOwnerBindingComponent binding = bindingService.getBindingOrNull(store, ownerRef);
         if (binding == null || !binding.hasBinding()) return;
-
-        Vector3d playerPos = playerRef.getTransform().getPosition();
-        float playerYaw = playerRef.getHeadRotation().getYaw();
 
         UUID ownerUuid = playerRef.getUuid();
         Ref<EntityStore> activeRef = registry.getCompanionRef(ownerUuid);
 
-        CompanionProfile bestProfile = null;
-        boolean bestIsActive = false;
-        double bestDistSq = Double.MAX_VALUE;
+        // Find which (if any) of this player's companions is the hit entity.
+        int targetIdx = targetRef.getIndex();
+        CompanionProfile matched = null;
+        boolean matchedIsActive = false;
 
-        List<CompanionProfile> profiles = binding.getProfiles();
-        for (CompanionProfile profile : profiles) {
+        for (CompanionProfile profile : binding.getProfiles()) {
             Ref<EntityStore> companionRef = resolveCompanionRef(store, profile, binding, activeRef);
             if (companionRef == null || !companionRef.isValid()) continue;
             if (companionRef.getStore() != store) continue;
+            if (companionRef.getIndex() != targetIdx) continue;
 
-            TransformComponent transform =
-                    store.getComponent(companionRef, TransformComponent.getComponentType());
-            if (transform == null) continue;
-
-            Vector3d companionPos = transform.getPosition();
-            double distSq = distanceSquared(playerPos, companionPos);
-            if (distSq > INTERACT_DISTANCE_SQ) continue;
-
-            if (!isInViewSector(playerYaw, playerPos, companionPos)) continue;
-
-            if (distSq < bestDistSq) {
-                bestDistSq = distSq;
-                bestProfile = profile;
-                bestIsActive = !profile.isStationedAtBase()
-                        && activeRef != null
-                        && companionRef.getIndex() == activeRef.getIndex();
-            }
+            matched = profile;
+            matchedIsActive = !profile.isStationedAtBase()
+                    && activeRef != null
+                    && companionRef.getIndex() == activeRef.getIndex();
+            break;
         }
 
-        if (bestProfile == null) return;
+        if (matched == null) {
+            LOGGER.atInfo().log("[Scruby-Interact] F press hit non-companion entity (networkId="
+                    + targetNetworkId + ", refIdx=" + targetIdx + "), ignoring.");
+            return;
+        }
 
-        if (bestIsActive) {
-            skillTreePage.open(store, ownerRef, playerRef, bestProfile);
-        } else if (bestProfile.isStationedAtBase()) {
-            skillTreePage.openTransfer(store, ownerRef, playerRef, bestProfile);
+        if (matchedIsActive) {
+            skillTreePage.open(store, ownerRef, playerRef, matched);
+        } else if (matched.isStationedAtBase()) {
+            skillTreePage.openTransfer(store, ownerRef, playerRef, matched);
         }
     }
 
@@ -176,33 +177,5 @@ public final class ScrubyInteractionHandler implements PlayerPacketFilter {
         // instead of the one the player is actually looking at.
         if (profile.getSlotId() != binding.getActiveSlot()) return null;
         return activeRef;
-    }
-
-    private static double distanceSquared(@Nonnull Vector3d a, @Nonnull Vector3d b) {
-        double dx = a.getX() - b.getX();
-        double dy = a.getY() - b.getY();
-        double dz = a.getZ() - b.getZ();
-        return dx * dx + dy * dy + dz * dz;
-    }
-
-    private static boolean isInViewSector(
-            float playerYaw,
-            @Nonnull Vector3d playerPos,
-            @Nonnull Vector3d companionPos
-    ) {
-        double dirX = -Math.sin(playerYaw);
-        double dirZ = -Math.cos(playerYaw);
-
-        double toX = companionPos.getX() - playerPos.getX();
-        double toZ = companionPos.getZ() - playerPos.getZ();
-
-        double length = Math.sqrt(toX * toX + toZ * toZ);
-        if (length < 0.001) return true;
-
-        toX /= length;
-        toZ /= length;
-
-        double dot = dirX * toX + dirZ * toZ;
-        return dot > VIEW_DOT_THRESHOLD;
     }
 }
