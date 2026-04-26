@@ -259,6 +259,7 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
 
         CompanionProfile profile = binding.getActiveProfile();
         String locale = profile.getLocale();
+        boolean stationed = profile.isStationedAtBase();
 
         int oldLevel = profile.getLevel();
         profile.setKillCount(profile.getKillCount() + 1);
@@ -298,7 +299,7 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
         }
 
         // First Discovery announcement — sent before level-up messages for maximum impact
-        if (firstDiscovery && playerRef != null) {
+        if (firstDiscovery && playerRef != null && !stationed) {
             String displayName = roleName.replace('_', ' ');
             playerRef.sendMessage(Message.raw(ScrubyLang.get(locale, "chat.discovery.header")));
             playerRef.sendMessage(Message.raw(ScrubyLang.get(locale, "chat.discovery.title")));
@@ -309,14 +310,14 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
             soundService.playLevelUp(playerRef, profile.getLevel());
         }
 
-        if (playerRef != null && !messages.isEmpty()) {
+        if (playerRef != null && !stationed && !messages.isEmpty()) {
             for (String msg : messages) {
                 playerRef.sendMessage(Message.raw(msg));
             }
         }
 
         // Warn if level 5 with no path and XP is accumulating but level-up blocked
-        if (profile.getLevel() == PATH_REQUIRED_LEVEL && "NONE".equals(profile.getPathChoice())) {
+        if (!stationed && profile.getLevel() == PATH_REQUIRED_LEVEL && "NONE".equals(profile.getPathChoice())) {
             PlayerRef pathWarnRef = store.getComponent(ownerRef, PlayerRef.getComponentType());
             if (pathWarnRef != null) {
                 soundService.playBlocked(pathWarnRef);
@@ -338,7 +339,7 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
             LOGGER.atInfo().log("[Scruby] Evolution triggered. Owner=" + ownerUuid
                     + " Stage=" + newStage + " Role=" + evoRoleName);
 
-            if (playerRef != null) {
+            if (playerRef != null && !stationed) {
                 TransformComponent evoTransform = store.getComponent(companionRef, TransformComponent.getComponentType());
                 if (evoTransform != null) {
                     Vector3d evoPos = evoTransform.getPosition();
@@ -455,8 +456,8 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
         binding.setActiveProfile(profile);
         ScrubyCompanionPlugin.savePlayerAsync(store, ownerRef, ownerUuid);
 
-        // 5. Chat feedback (respect mute setting)
-        if (playerRef != null && !ScrubyMuteInventoryCommand.isMuted(binding)) {
+        // 5. Chat feedback (respect mute setting; suppressed for stationed companions)
+        if (playerRef != null && !profile.isStationedAtBase() && !ScrubyMuteInventoryCommand.isMuted(binding)) {
             if (!collected.isEmpty() && dropped.isEmpty()) {
                 playerRef.sendMessage(Message.raw(
                         ScrubyLang.get(locale, "chat.killloot.collected", String.join(", ", collected))));
