@@ -10,7 +10,7 @@
     "AttackDistance": 3,
     "DesiredAttackDistanceRange": [2, 2.5],
     "CombatBehaviorDistance": 5,
-    "MaxHealth": 40,
+    "MaxHealth": 120,
     "BlockAbility": "Shield_Block",
     "BlockProbability": 50,
     "DespawnTimer": 9999,

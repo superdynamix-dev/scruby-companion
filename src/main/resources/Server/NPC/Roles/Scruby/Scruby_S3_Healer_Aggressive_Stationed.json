@@ -11,7 +11,7 @@
     "CombatBehaviorDistance": 20,
     "ViewRange": 20,
     "AbsoluteDetectionRange": 20,
-    "MaxHealth": 90,
+    "MaxHealth": 220,
     "RunThreshold": 1.0,
     "DespawnTimer": 9999,
     "DisableDamageGroups": ["Self", "Player"],

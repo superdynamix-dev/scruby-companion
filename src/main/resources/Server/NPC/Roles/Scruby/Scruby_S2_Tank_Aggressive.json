@@ -12,7 +12,7 @@
     "CombatBehaviorDistance": 20,
     "ViewRange": 20,
     "AbsoluteDetectionRange": 20,
-    "MaxHealth": 80,
+    "MaxHealth": 200,
     "BlockAbility": "Shield_Block",
     "BlockProbability": 50,
     "DespawnTimer": 9999,

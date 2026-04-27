@@ -9,7 +9,7 @@
     "AttackDistance": 15,
     "DesiredAttackDistanceRange": [5, 15],
     "CombatBehaviorDistance": 15,
-    "MaxHealth": 55,
+    "MaxHealth": 140,
     "DespawnTimer": 9999,
     "DisableDamageGroups": ["Self", "Player"],
     "NameTranslationKey": "server.npcRoles.Skeleton_Archer.name",
