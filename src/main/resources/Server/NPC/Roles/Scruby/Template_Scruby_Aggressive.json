@@ -457,7 +457,7 @@
                   "HearingRange": { "Compute": "HearingRange" },
                   "AbsoluteDetectionRange": { "Compute": "AbsoluteDetectionRange" },
                   "Attitudes": ["Hostile"],
-                  "ExcludeGroups": ["Scruby"]
+                  "ExcludeGroups": ["Scruby", "Tamed"]
                 }
               },
               "Actions": [
@@ -597,7 +597,7 @@
                       "HearingRange": { "Compute": "HearingRange" },
                       "AbsoluteDetectionRange": { "Compute": "AbsoluteDetectionRange" },
                       "Attitudes": [ "Hostile" ],
-                      "ExcludeGroups": ["Scruby"]
+                      "ExcludeGroups": ["Scruby", "Tamed"]
                     }
                   },
                   {
