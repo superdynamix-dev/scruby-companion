@@ -495,15 +495,26 @@ public final class ScrubyAdminService {
      */
     private void removeProfileFromBinding(@Nonnull ScrubyOwnerBindingComponent binding, int slotId) {
         List<CompanionProfile> profiles = binding.getProfiles();
-        profiles.removeIf(p -> p.getSlotId() == slotId);
+        boolean removed = profiles.removeIf(p -> p.getSlotId() == slotId);
+        if (!removed) {
+            return;
+        }
+        // Compact slotIds so addCompanion doesn't refill the just-freed slot ahead of shifted siblings.
+        for (CompanionProfile p : profiles) {
+            if (p.getSlotId() > slotId) {
+                p.setSlotId(p.getSlotId() - 1);
+            }
+        }
         binding.setProfiles(profiles);
-        // If deleted the active slot, switch to nearest occupied
-        if (binding.getActiveSlot() == slotId) {
+        int currentActive = binding.getActiveSlot();
+        if (currentActive == slotId) {
             if (profiles.isEmpty()) {
                 binding.clearAll();
             } else {
                 binding.setActiveSlot(profiles.get(0).getSlotId());
             }
+        } else if (currentActive > slotId) {
+            binding.setActiveSlot(currentActive - 1);
         }
     }
 

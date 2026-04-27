@@ -208,15 +208,24 @@ public final class ScrubyBindingService {
             return false;
         }
 
+        // Compact slotIds so addCompanion doesn't refill the just-freed slot ahead of shifted siblings.
+        for (CompanionProfile p : profiles) {
+            if (p.getSlotId() > targetSlot) {
+                p.setSlotId(p.getSlotId() - 1);
+            }
+        }
+
         binding.setProfiles(profiles);
 
-        // If deleted the active slot, switch to nearest occupied
-        if (binding.getActiveSlot() == targetSlot) {
+        int currentActive = binding.getActiveSlot();
+        if (currentActive == targetSlot) {
             if (profiles.isEmpty()) {
                 binding.clearAll();
             } else {
                 binding.setActiveSlot(profiles.get(0).getSlotId());
             }
+        } else if (currentActive > targetSlot) {
+            binding.setActiveSlot(currentActive - 1);
         }
 
         return true;
