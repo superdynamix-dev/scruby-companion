@@ -19,10 +19,12 @@ import java.util.List;
 /**
  * Removes duplicate ground items near kill positions.
  *
- * Uses World.getEntityStore().getStore()
- * gives access to the REAL item Store (different from the Store passed to
- * system ticks). Then forEachChunk(ItemComponent) finds items, and the
- * CommandBuffer from that callback can removeEntity with proper client sync.
+ * The actual ECS work (forEachChunk + removeEntity on the world's item store)
+ * MUST run on the world's own thread — Hytale's component store has a hard
+ * thread-affinity assertion. We collect ready cleanups on our own tick thread
+ * and then post a Runnable to the world via {@code World.execute(Runnable)}
+ * (World implements {@link java.util.concurrent.Executor}). The world's tick
+ * drains its task queue on its own thread.
  */
 public final class ScrubyItemCleanupSystem extends TickingSystem<EntityStore> {
 
@@ -50,24 +52,41 @@ public final class ScrubyItemCleanupSystem extends TickingSystem<EntityStore> {
 
         if (ready.isEmpty()) return;
 
-        // Get the REAL item store via World.
-        // The Store passed to tick() does NOT contain item entities.
-        // World.getEntityStore().getStore() gives the store where items actually live.
-        try {
-            World world = Universe.get().getDefaultWorld();
-            if (world == null) return;
+        final World world = Universe.get().getDefaultWorld();
+        if (world == null) return;
 
+        // Hand the cleanup work to the world's own thread. Direct access to
+        // world.getEntityStore() from this tick (which runs on a different
+        // thread) trips an IllegalStateException via Hytale's thread assertion.
+        final List<ScrubyKillDetectionSystem.PendingCleanup> readyOnWorld = ready;
+        world.execute(() -> runCleanupOnWorldThread(world, readyOnWorld));
+    }
+
+    private static void runCleanupOnWorldThread(
+            @Nonnull World world,
+            @Nonnull List<ScrubyKillDetectionSystem.PendingCleanup> ready
+    ) {
+        try {
             Store<EntityStore> itemStore = world.getEntityStore().getStore();
 
             int removed = 0;
+            int totalChunksVisited = 0;
+            int totalItemsScanned = 0;
+            int totalItemsInRange = 0;
+
             for (ScrubyKillDetectionSystem.PendingCleanup cleanup : ready) {
                 final Vector3d killPos = cleanup.position;
                 final double radiusSq = 5.0 * 5.0;
 
-                // forEachChunk on the World's store with ItemComponent — this finds items!
-                final int[] count = {0};
+                final int[] chunksVisited = {0};
+                final int[] itemsScanned  = {0};
+                final int[] itemsInRange  = {0};
+                final int[] itemsRemoved  = {0};
+
                 itemStore.forEachChunk(ItemComponent.getComponentType(), (chunk, cmdBuf) -> {
+                    chunksVisited[0]++;
                     int size = chunk.size();
+                    itemsScanned[0] += size;
                     for (int i = 0; i < size; i++) {
                         TransformComponent transform = chunk.getComponent(i, TransformComponent.getComponentType());
                         if (transform == null) continue;
@@ -79,20 +98,34 @@ public final class ScrubyItemCleanupSystem extends TickingSystem<EntityStore> {
                         double distSq = dx * dx + dy * dy + dz * dz;
 
                         if (distSq <= radiusSq) {
+                            itemsInRange[0]++;
                             Ref<EntityStore> itemRef = chunk.getReferenceTo(i);
                             if (itemRef != null && itemRef.isValid()) {
                                 cmdBuf.removeEntity(itemRef, RemoveReason.REMOVE);
-                                count[0]++;
+                                itemsRemoved[0]++;
                             }
                         }
                     }
                 });
-                removed += count[0];
+
+                LOGGER.atInfo().log("[Scruby-KillLoot] Cleanup pos=("
+                        + killPos.getX() + "," + killPos.getY() + "," + killPos.getZ()
+                        + ") chunksVisited=" + chunksVisited[0]
+                        + " itemsScanned=" + itemsScanned[0]
+                        + " itemsInRange=" + itemsInRange[0]
+                        + " itemsRemoved=" + itemsRemoved[0]);
+
+                totalChunksVisited += chunksVisited[0];
+                totalItemsScanned  += itemsScanned[0];
+                totalItemsInRange  += itemsInRange[0];
+                removed            += itemsRemoved[0];
             }
 
-            if (removed > 0) {
-                LOGGER.atInfo().log("[Scruby-KillLoot] Cleaned up " + removed + " ground items via World store");
-            }
+            LOGGER.atInfo().log("[Scruby-KillLoot] Cleanup pass: pendingCleanups=" + ready.size()
+                    + " totalChunksVisited=" + totalChunksVisited
+                    + " totalItemsScanned=" + totalItemsScanned
+                    + " totalItemsInRange=" + totalItemsInRange
+                    + " removed=" + removed);
         } catch (Exception e) {
             LOGGER.atInfo().log("[Scruby-KillLoot] Cleanup failed: "
                     + e.getClass().getSimpleName() + ": " + e.getMessage());

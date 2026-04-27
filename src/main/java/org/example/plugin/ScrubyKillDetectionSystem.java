@@ -217,13 +217,7 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
                 continue;
             }
 
-            attributeKill(store, ownerUuid, companionRef, mobMaxHP, roleName, deadRef);
-
-            // Queue cleanup of Hytale's duplicate ground drops at kill position.
-            // Must happen here because deadRef's TransformComponent may be gone later.
-            if (configService.isKillLootEnabled()) {
-                pendingItemCleanups.add(new PendingCleanup(deadPos, System.currentTimeMillis()));
-            }
+            attributeKill(store, ownerUuid, companionRef, mobMaxHP, roleName, deadRef, deadPos);
         }
     }
 
@@ -233,7 +227,8 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
             @Nonnull Ref<EntityStore> companionRef,
             float mobMaxHP,
             @Nonnull String roleName,
-            @Nonnull Ref<EntityStore> deadRef
+            @Nonnull Ref<EntityStore> deadRef,
+            @Nonnull Vector3d deadPos
     ) {
         EntityStore entityStore = store.getExternalData();
         Ref<EntityStore> ownerRef = entityStore.getRefFromUUID(ownerUuid);
@@ -286,8 +281,13 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
 
         PlayerRef playerRef = store.getComponent(ownerRef, PlayerRef.getComponentType());
 
-        // Kill-Loot: collect drops into companion inventory
-        collectKillLoot(store, profile, binding, companionRef, playerRef, deadRef, ownerRef, ownerUuid);
+        // Kill-Loot: collect drops into companion inventory.
+        // Cleanup of Hytale's natural ground drops only fires when Scruby actually
+        // received ≥1 item — otherwise drops stay in the world for the player.
+        boolean lootCollected = collectKillLoot(store, profile, binding, companionRef, playerRef, deadRef, ownerRef, ownerUuid);
+        if (lootCollected) {
+            pendingItemCleanups.add(new PendingCleanup(deadPos, System.currentTimeMillis()));
+        }
 
         // Sound feedback
         if (playerRef != null) {
@@ -376,8 +376,14 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
     /**
      * Collects kill drops into the companion's inventory.
      * Items that don't fit are dropped on the ground at the companion's position.
+     *
+     * @return {@code true} if at least one item was placed into the companion's
+     *         inventory (caller uses this to decide whether to clean up the
+     *         duplicate world drops). Returns {@code false} when kill-loot is
+     *         off, no drop list exists, no drops were rolled, or the inventory
+     *         was already full so nothing fit.
      */
-    private void collectKillLoot(
+    private boolean collectKillLoot(
             @Nonnull Store<EntityStore> store,
             @Nonnull CompanionProfile profile,
             @Nonnull ScrubyOwnerBindingComponent binding,
@@ -388,32 +394,32 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
             @Nonnull UUID ownerUuid
     ) {
         if (!profile.isKillLootActive(configService.isKillLootEnabled())) {
-            return;
+            return false;
         }
 
         // 1. Get dead NPC's drop list
         NPCEntity deadNpc = store.getComponent(deadRef, NPCEntity.getComponentType());
-        if (deadNpc == null) return;
+        if (deadNpc == null) return false;
 
         Role role = deadNpc.getRole();
-        if (role == null) return;
+        if (role == null) return false;
 
         String dropListId = role.getDropListId();
-        if (dropListId == null || dropListId.isEmpty()) return;
+        if (dropListId == null || dropListId.isEmpty()) return false;
 
         // 2. Generate random drops from the NPC's loot table
         ItemModule itemModule = ItemModule.get();
-        if (itemModule == null || !itemModule.isEnabled()) return;
+        if (itemModule == null || !itemModule.isEnabled()) return false;
 
         List<ItemStack> drops;
         try {
             drops = itemModule.getRandomItemDrops(dropListId);
         } catch (Exception e) {
             LOGGER.atInfo().log("[Scruby-KillLoot] Failed to get drops for " + dropListId + ": " + e.getMessage());
-            return;
+            return false;
         }
 
-        if (drops == null || drops.isEmpty()) return;
+        if (drops == null || drops.isEmpty()) return false;
 
         // 3. Try to add each drop to companion inventory
         String locale = profile.getLocale();
@@ -473,6 +479,11 @@ public final class ScrubyKillDetectionSystem extends DeathSystems.OnDeathSystem 
 
         LOGGER.atInfo().log("[Scruby-KillLoot] Collected: " + collected + " Dropped: " + dropped
                 + " DropListId: " + dropListId);
+
+        // Only signal "loot received" if at least one item went into the inventory.
+        // If everything overflowed (inventory full), the world drops should remain
+        // for the player to pick up.
+        return !collected.isEmpty();
     }
 
     private void handleCompanionDeath(
