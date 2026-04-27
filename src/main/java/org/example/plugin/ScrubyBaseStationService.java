@@ -5,10 +5,6 @@ import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.math.vector.Vector3d;
 import com.hypixel.hytale.math.vector.Vector3f;
-import com.hypixel.hytale.server.core.entity.entities.Player;
-import com.hypixel.hytale.server.core.entity.entities.player.data.PlayerConfigData;
-import com.hypixel.hytale.server.core.entity.entities.player.data.PlayerRespawnPointData;
-import com.hypixel.hytale.server.core.entity.entities.player.data.PlayerWorldData;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
@@ -17,7 +13,6 @@ import com.hypixel.hytale.server.npc.entities.NPCEntity;
 import it.unimi.dsi.fastutil.Pair;
 
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -52,63 +47,17 @@ public final class ScrubyBaseStationService {
     public double getGuardRadius() { return configService.getGuardRadiusBlocks(); }
 
     /**
-     * Attempts to read the player's bed/respawn position from the Hytale API.
-     * Returns the respawn position as Vector3d, or null if no respawn point is set.
+     * Stations the companion at the player's current position.
      */
-    @Nullable
-    public Vector3d getBedPositionOrNull(@Nonnull Player player, @Nonnull String worldName) {
-        Objects.requireNonNull(player, "player");
-        Objects.requireNonNull(worldName, "worldName");
-
-        try {
-            PlayerConfigData configData = player.getPlayerConfigData();
-            if (configData == null) {
-                LOGGER.atInfo().log("[Scruby-Station] PlayerConfigData is null.");
-                return null;
-            }
-
-            PlayerWorldData worldData = configData.getPerWorldData(worldName);
-            if (worldData == null) {
-                LOGGER.atInfo().log("[Scruby-Station] No world data for world: " + worldName);
-                return null;
-            }
-
-            PlayerRespawnPointData[] respawnPoints = worldData.getRespawnPoints();
-            if (respawnPoints == null || respawnPoints.length == 0) {
-                LOGGER.atInfo().log("[Scruby-Station] No respawn points set for player.");
-                return null;
-            }
-
-            // Use the first respawn point (primary bed)
-            return respawnPoints[0].getRespawnPosition();
-        } catch (Exception e) {
-            LOGGER.atInfo().log("[Scruby-Station] Error reading bed position: " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Stations the companion at the player's bed position.
-     * Falls back to the player's current position if no bed is found.
-     */
-    public boolean stationAtBed(
-            @Nonnull Player player,
+    public boolean stationAtPlayer(
             @Nonnull PlayerRef playerRef,
             @Nonnull CompanionProfile profile,
             @Nonnull String worldName
     ) {
-        Objects.requireNonNull(player, "player");
         Objects.requireNonNull(playerRef, "playerRef");
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(worldName, "worldName");
 
-        Vector3d bedPos = getBedPositionOrNull(player, worldName);
-        if (bedPos != null) {
-            return stationAtPosition(profile, bedPos.x, bedPos.y, bedPos.z, worldName);
-        }
-
-        // Fallback: use player's current position
-        LOGGER.atInfo().log("[Scruby-Station] No bed found, using player position as fallback.");
         Vector3d playerPos = playerRef.getTransform().getPosition();
         return stationAtPosition(profile, playerPos.x, playerPos.y, playerPos.z, worldName);
     }

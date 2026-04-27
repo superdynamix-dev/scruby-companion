@@ -6,7 +6,6 @@ import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractPlayerCommand;
-import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
@@ -106,16 +105,9 @@ public final class ScrubyStationCommand extends AbstractPlayerCommand {
             return;
         }
 
-        // Get Player entity for bed position lookup
-        Player player = store.getComponent(ref, Player.getComponentType());
-        if (player == null) {
-            ctx.sendMessage(Message.raw(ScrubyLang.get(locale, "cmd.station.player_error")));
-            return;
-        }
-
         String worldName = world.getName();
 
-        boolean success = baseStationService.stationAtBed(player, playerRef, profile, worldName);
+        boolean success = baseStationService.stationAtPlayer(playerRef, profile, worldName);
         if (!success) {
             ctx.sendMessage(Message.raw(ScrubyLang.get(locale, "cmd.station.failed")));
             return;

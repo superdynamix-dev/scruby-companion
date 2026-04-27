@@ -2001,23 +2001,16 @@ public final class ScrubySkillTreePage {
                         return;
                     }
 
-                    // Get Player entity for bed position lookup
-                    Player player = store.getComponent(ownerRef, Player.getComponentType());
-                    if (player == null) {
-                        soundService.playError(playerRef);
-                        reopenScrubys(store, ownerRef, playerRef);
-                        return;
-                    }
-
-                    // Get world name from Player entity
+                    // Resolve world name for the station record
                     String worldName;
                     try {
-                        worldName = player.getWorld().getName();
+                        Player player = store.getComponent(ownerRef, Player.getComponentType());
+                        worldName = (player != null) ? player.getWorld().getName() : "default";
                     } catch (Exception e) {
                         worldName = "default";
                     }
 
-                    boolean success = baseStationService.stationAtBed(player, playerRef, activeProfile, worldName);
+                    boolean success = baseStationService.stationAtPlayer(playerRef, activeProfile, worldName);
                     if (!success) {
                         soundService.playError(playerRef);
                         reopenScrubys(store, ownerRef, playerRef);
