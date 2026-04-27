@@ -198,13 +198,26 @@ public final class ScrubyAdminService {
         if (level < 1 || level > ScrubyXPService.MAX_LEVEL) {
             return "[Scruby-Admin] Level must be 1-" + ScrubyXPService.MAX_LEVEL + ".";
         }
+        // Preserve attribute distribution if it still fits the new cap.
+        // Only on level-down past the already-spent total do we reset, since
+        // having more points distributed than the cap allows produces an
+        // unfixable inconsistent state in the menu.
+        int oldTotalSpent = profile.getAttributeVitality()
+                          + profile.getAttributeStrength()
+                          + profile.getAttributeZeal();
+        int newCap = level * 2;
+
         profile.setLevel(level);
         profile.setCurrentXp(0);
         profile.setEvolutionStage(evolutionService.calculateEvolutionStage(level));
-        profile.setAttributePointsAvailable(level * 2);
-        profile.setAttributeVitality(0);
-        profile.setAttributeStrength(0);
-        profile.setAttributeZeal(0);
+        if (oldTotalSpent <= newCap) {
+            profile.setAttributePointsAvailable(newCap - oldTotalSpent);
+        } else {
+            profile.setAttributePointsAvailable(newCap);
+            profile.setAttributeVitality(0);
+            profile.setAttributeStrength(0);
+            profile.setAttributeZeal(0);
+        }
         profile.setFixedAbilities("");
         for (int lvl = 1; lvl <= level; lvl++) {
             skillService.processLevelUp(profile, lvl);
