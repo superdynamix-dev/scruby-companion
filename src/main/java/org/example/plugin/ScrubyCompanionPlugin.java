@@ -4,6 +4,7 @@ import com.hypixel.hytale.component.ComponentType;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
@@ -229,6 +230,15 @@ public class ScrubyCompanionPlugin extends JavaPlugin {
         this.getEventRegistry().registerGlobal(
                 PlayerReadyEvent.class,
                 lifecycleListener::onPlayerReady
+        );
+
+        this.getEventRegistry().registerGlobal(
+                PlayerDisconnectEvent.class,
+                lifecycleListener::onPlayerDisconnect
+        );
+
+        this.getEntityStoreRegistry().registerSystem(
+                new ScrubyCompanionResolveSystem(lifecycleListener)
         );
 
         this.getCommandRegistry().registerCommand(

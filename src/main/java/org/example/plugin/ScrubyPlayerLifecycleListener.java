@@ -5,6 +5,7 @@ import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.Message;
+import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
@@ -13,10 +14,43 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import javax.annotation.Nonnull;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class ScrubyPlayerLifecycleListener {
 
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
+
+    /**
+     * Wait-and-retry window: when a rejoin's UUID lookup fails (chunks still
+     * unloading from the previous session), keep retrying for this long before
+     * giving up and spawning a fresh companion. The original entity often
+     * resurfaces within ~1 second once the chunk finishes loading; 5s leaves
+     * generous headroom and matches the "feels instant" budget for the user.
+     */
+    static final long RESOLVE_TIMEOUT_MS = 5000L;
+
+    /** Pending rejoin resolves keyed by owner UUID. */
+    static final ConcurrentHashMap<UUID, PendingCompanionResolve> pendingResolves =
+            new ConcurrentHashMap<>();
+
+    /** State carried for a wait-and-retry resolve attempt across system ticks. */
+    static final class PendingCompanionResolve {
+        final UUID ownerUuid;
+        final String companionUuidString;
+        /** Null falls back to the default world when the system processes the entry. */
+        final UUID worldUuid;
+        final long enqueueTimestamp;
+
+        PendingCompanionResolve(@Nonnull UUID ownerUuid,
+                                @Nonnull String companionUuidString,
+                                UUID worldUuid,
+                                long enqueueTimestamp) {
+            this.ownerUuid = ownerUuid;
+            this.companionUuidString = companionUuidString;
+            this.worldUuid = worldUuid;
+            this.enqueueTimestamp = enqueueTimestamp;
+        }
+    }
 
     private final ScrubyBindingService bindingService;
     private final ScrubyActiveCompanionRegistry registry;
@@ -51,6 +85,29 @@ public final class ScrubyPlayerLifecycleListener {
         this.combatModeOverrideService = combatModeOverrideService;
         this.attributeService = attributeService;
         this.skillService = skillService;
+    }
+
+    /**
+     * Minimal disconnect cleanup — only in-memory state, NO ECS access and NO
+     * packets to the leaving client. Without this, the active-companion
+     * registry keeps a stale {@code owner -> companionRef} entry that survives
+     * the disconnect; on rejoin the chunk-unloaded ref tests as invalid and
+     * {@link ScrubySmartFollowSystem#handleInvalidCompanion} eagerly spawns a
+     * fresh companion before the wait-and-retry resolve gets a chance — the
+     * original entity later loads back in as an orphan.
+     *
+     * Earlier versions called {@code npcEntity.remove()} here and crashed the
+     * client with a despawn packet on a tearing-down connection. Keep this
+     * handler strictly to plain Java state.
+     */
+    public void onPlayerDisconnect(@Nonnull PlayerDisconnectEvent event) {
+        PlayerRef playerRef = event.getPlayerRef();
+        if (playerRef == null) return;
+        UUID ownerUuid = playerRef.getUuid();
+        registry.unregister(ownerUuid);
+        pendingResolves.remove(ownerUuid);
+        hudManager.onPlayerLeave(ownerUuid);
+        LOGGER.atInfo().log("[Scruby-Disconnect] In-memory cleanup for " + ownerUuid);
     }
 
     public void onPlayerReady(@Nonnull PlayerReadyEvent event) {
@@ -162,72 +219,133 @@ public final class ScrubyPlayerLifecycleListener {
         Ref<EntityStore> companionRef = null;
 
         if (companionUuidString != null && !companionUuidString.isEmpty()) {
-            UUID companionUuid = UUID.fromString(companionUuidString);
-            companionRef = entityStore.getRefFromUUID(companionUuid);
+            try {
+                UUID companionUuid = UUID.fromString(companionUuidString);
+                companionRef = entityStore.getRefFromUUID(companionUuid);
+            } catch (IllegalArgumentException ignored) {}
         }
 
-        if (companionRef != null && companionRef.isValid()) {
-            // Cross-world guard: only register if companion is in this world's store
-            if (companionRef.getStore() != store) {
-                return;
-            }
-
-            if (profile.isEntityMissing()) {
-                profile.setEntityMissing(false);
-                binding.setActiveProfile(profile);
-            }
-
-            String ownerUuidString = binding.getOwnerPlayerUuid();
-            if (ownerUuidString == null || ownerUuidString.isEmpty()) {
-                return;
-            }
-
-            UUID ownerUuid = UUID.fromString(ownerUuidString);
-            this.resetService.clearLockedTarget(store, companionRef);
-            this.registry.register(ownerUuid, companionRef);
-
-            // Re-apply attribute and skill modifiers so balancing changes from a plugin
-            // update take effect on companions already living in the world. Modifiers
-            // are stored on the entity's StatMap and otherwise stay frozen at the values
-            // computed at the last spawn — putModifier replaces by id, so this is a
-            // safe in-place refresh.
-            this.attributeService.applyAttributes(store, companionRef, profile, ownerUuid);
-            this.skillService.applyPassiveSkills(store, companionRef, profile);
-
-            ScrubyArmorService.applyVisualArmor(store, companionRef, profile);
+        if (companionRef != null && companionRef.isValid() && companionRef.getStore() == store) {
+            registerExistingCompanion(store, playerRef, companionRef, binding, profile);
             return;
         }
 
         UUID ownerUuid = resolveOwnerUuidOrFallback(binding, playerRef);
-
         boolean wasManuallyDespawned = profile.isManuallyDespawned();
 
-        bindingService.markCompanionEntityMissing(store, playerRef);
-        this.resetService.resetOwnerSession(ownerUuid);
-
         if (wasManuallyDespawned) {
+            // User explicitly despawned with /scruby despawn before disconnecting.
+            // Honor that — clear the stale UUID and don't auto-respawn.
+            bindingService.markCompanionEntityMissing(store, playerRef);
+            this.resetService.resetOwnerSession(ownerUuid);
             LOGGER.atInfo().log("[Scruby] Companion was manually despawned, skipping auto-respawn.");
             return;
         }
 
-        if (playerRefComponent == null) {
-            playerRefComponent = store.getComponent(playerRef, PlayerRef.getComponentType());
-        }
-
-        if (playerRefComponent == null) {
-            LOGGER.atInfo().log("[Scruby] Companion entity missing after rejoin, binding cleaned. Auto-respawn skipped: no PlayerRef.");
+        // Lookup failed but the profile still has a UUID and it wasn't a manual
+        // despawn — the companion is likely in a chunk that's still loading
+        // after the rejoin. Queue a wait-and-retry instead of immediately
+        // spawning a fresh one (the immediate spawn was the orphan-on-rejoin
+        // bug — the old entity later loads in and we end up with two).
+        if (companionUuidString != null && !companionUuidString.isEmpty()) {
+            UUID worldUuidForResolve = (playerRefComponent != null) ? playerRefComponent.getWorldUuid() : null;
+            pendingResolves.put(ownerUuid, new PendingCompanionResolve(
+                    ownerUuid,
+                    companionUuidString,
+                    worldUuidForResolve,
+                    System.currentTimeMillis()));
+            LOGGER.atInfo().log("[Scruby] Companion lookup failed on rejoin — queued resolve retry. Owner="
+                    + ownerUuid + " entity=" + companionUuidString);
+            // Don't touch profile or registry yet — the resolve system will
+            // either reattach to the entity or fall back to a fresh spawn.
+            respawnStationedCompanions(store, entityStore, binding);
             return;
         }
 
-        UUID spawnedUuid = this.spawnService.spawnCompanion(store, playerRef, playerRefComponent, ownerUuid);
+        // No saved UUID at all (truly fresh case) — spawn now.
+        spawnFreshCompanion(store, playerRef, playerRefComponent, binding, ownerUuid);
+        respawnStationedCompanions(store, entityStore, binding);
+    }
+
+    /**
+     * Registers a found companion entity as the player's active companion.
+     * Re-applies attributes/skills/visual armor so plugin-balance updates
+     * take effect on existing companions.
+     *
+     * Called from both the immediate-success path of onPlayerReadyInternal
+     * and from {@link ScrubyCompanionResolveSystem} after a deferred resolve.
+     */
+    void registerExistingCompanion(
+            @Nonnull Store<EntityStore> store,
+            @Nonnull Ref<EntityStore> ownerRef,
+            @Nonnull Ref<EntityStore> companionRef,
+            @Nonnull ScrubyOwnerBindingComponent binding,
+            @Nonnull CompanionProfile profile
+    ) {
+        if (profile.isEntityMissing()) {
+            profile.setEntityMissing(false);
+            binding.setActiveProfile(profile);
+        }
+
+        String ownerUuidString = binding.getOwnerPlayerUuid();
+        if (ownerUuidString == null || ownerUuidString.isEmpty()) {
+            return;
+        }
+
+        UUID ownerUuid;
+        try {
+            ownerUuid = UUID.fromString(ownerUuidString);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+
+        this.resetService.clearLockedTarget(store, companionRef);
+        this.registry.register(ownerUuid, companionRef);
+
+        // Re-apply attribute and skill modifiers so balancing changes from a plugin
+        // update take effect on companions already living in the world. Modifiers
+        // are stored on the entity's StatMap and otherwise stay frozen at the values
+        // computed at the last spawn — putModifier replaces by id, so this is a
+        // safe in-place refresh.
+        this.attributeService.applyAttributes(store, companionRef, profile, ownerUuid);
+        this.skillService.applyPassiveSkills(store, companionRef, profile);
+
+        ScrubyArmorService.applyVisualArmor(store, companionRef, profile);
+    }
+
+    /**
+     * Spawns a fresh companion when no saved UUID exists or the resolve
+     * timed out. Mirrors the original auto-respawn path.
+     *
+     * Called from onPlayerReadyInternal (no-saved-UUID branch) and from
+     * {@link ScrubyCompanionResolveSystem} (timeout fallback).
+     */
+    void spawnFreshCompanion(
+            @Nonnull Store<EntityStore> store,
+            @Nonnull Ref<EntityStore> ownerRef,
+            PlayerRef playerRefComponent,
+            @Nonnull ScrubyOwnerBindingComponent binding,
+            @Nonnull UUID ownerUuid
+    ) {
+        bindingService.markCompanionEntityMissing(store, ownerRef);
+        this.resetService.resetOwnerSession(ownerUuid);
+
+        if (playerRefComponent == null) {
+            playerRefComponent = store.getComponent(ownerRef, PlayerRef.getComponentType());
+        }
+
+        if (playerRefComponent == null) {
+            LOGGER.atInfo().log("[Scruby] Auto-respawn skipped: no PlayerRef.");
+            return;
+        }
+
+        UUID spawnedUuid = this.spawnService.spawnCompanion(store, ownerRef, playerRefComponent, ownerUuid);
 
         if (spawnedUuid != null) {
             LOGGER.atInfo().log("[Scruby] Auto-respawn after rejoin.");
         } else {
-            LOGGER.atInfo().log("[Scruby] Companion entity missing after rejoin, auto-respawn failed. Binding cleaned.");
+            LOGGER.atInfo().log("[Scruby] Auto-respawn failed. Binding cleaned.");
         }
-
-        respawnStationedCompanions(store, entityStore, binding);
     }
 
     /**
@@ -320,4 +438,8 @@ public final class ScrubyPlayerLifecycleListener {
                 .getComponent(playerRef, PlayerRef.getComponentType())
                 .getUuid();
     }
+
+    /** Package-private accessor for {@link ScrubyCompanionResolveSystem}. */
+    @Nonnull
+    ScrubyBindingService getBindingService() { return bindingService; }
 }
