@@ -1439,6 +1439,7 @@ public final class ScrubySkillTreePage {
             String resetName = resetProfile != null ? resetProfile.getCompanionName() : "Scruby";
 
             sb.append("<div id=\"reset-dialog\" style=\"layout-mode: Top; background-color: rgba(90,26,26,0.4) 1; padding: 14;\">");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<p style=\"font-size: 13; color: ").append(ScrubyColors.TEXT_BRIGHT)
               .append("; font-weight: bold; text-align: center;\">").append(esc(ScrubyLang.get(locale, "ui.scrubys.reset.confirm"))).append("</p>");
             sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
@@ -1446,7 +1447,7 @@ public final class ScrubySkillTreePage {
               .append("; text-align: center;\">").append(esc(ScrubyLang.get(locale, "ui.scrubys.reset.details", resetName))).append("</p>");
             sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<p style=\"font-size: 11; color: #e05050; text-align: center;\">").append(esc(ScrubyLang.get(locale, "ui.scrubys.reset.warning"))).append("</p>");
-            sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<div style=\"layout-mode: Left;\">");
             sb.append("<p style=\"flex-weight: 1; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<button id=\"cancel-reset\" class=\"custom-textbutton\""
@@ -1462,6 +1463,7 @@ public final class ScrubySkillTreePage {
                     + " style=\"anchor-width: 160; anchor-height: 28;\">").append(esc(ScrubyLang.get(locale, "ui.scrubys.reset.button"))).append("</button>");
             sb.append("<p style=\"flex-weight: 1; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("</div>");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("</div>");
             sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
         }
@@ -1476,12 +1478,13 @@ public final class ScrubySkillTreePage {
             String deleteName = deleteProfile != null ? deleteProfile.getCompanionName() : "Scruby";
 
             sb.append("<div id=\"delete-dialog\" style=\"layout-mode: Top; background-color: rgba(90,26,26,0.4) 1; padding: 14;\">");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<p style=\"font-size: 13; color: ").append(ScrubyColors.TEXT_BRIGHT)
               .append("; font-weight: bold; text-align: center;\">").append(esc(ScrubyLang.get(locale, "ui.scrubys.delete.confirm"))).append("</p>");
             sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<p style=\"font-size: 11; color: #e05050; text-align: center;\">")
               .append(esc(ScrubyLang.get(locale, "ui.scrubys.delete.warning", deleteName))).append("</p>");
-            sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<div style=\"layout-mode: Left;\">");
             sb.append("<p style=\"flex-weight: 1; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<button id=\"cancel-delete\" class=\"custom-textbutton\""
@@ -1497,6 +1500,7 @@ public final class ScrubySkillTreePage {
                     + " style=\"anchor-width: 160; anchor-height: 28;\">").append(esc(ScrubyLang.get(locale, "ui.scrubys.delete.button"))).append("</button>");
             sb.append("<p style=\"flex-weight: 1; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("</div>");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("</div>");
             sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
         }
@@ -1511,6 +1515,7 @@ public final class ScrubySkillTreePage {
             String currentName = renameProfile != null ? renameProfile.getCompanionName() : "Scruby";
 
             sb.append("<div id=\"rename-dialog\" style=\"layout-mode: Top; background-color: rgba(80,140,200,0.15) 1; padding: 14;\">");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<p style=\"font-size: 13; color: ").append(ScrubyColors.TEXT_BRIGHT)
               .append("; font-weight: bold; text-align: center;\">").append(esc(ScrubyLang.get(locale, "ui.scrubys.rename.title"))).append("</p>");
             sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
@@ -1520,7 +1525,7 @@ public final class ScrubySkillTreePage {
             sb.append("<input type=\"text\" id=\"rename-input\" value=\"").append(esc(currentName))
               .append("\" maxlength=\"12\" placeholder=\"").append(esc(ScrubyLang.get(locale, "ui.scrubys.rename.placeholder"))).append("\" class=\"default-style\""
                     + " style=\"anchor-height: 28; anchor-width: 300; horizontal-align: center;\" />");
-            sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<div style=\"layout-mode: Left;\">");
             sb.append("<p style=\"flex-weight: 1; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("<button id=\"cancel-rename\" class=\"custom-textbutton\""
@@ -1542,6 +1547,7 @@ public final class ScrubySkillTreePage {
                     + " style=\"anchor-width: 140; anchor-height: 28;\">").append(esc(ScrubyLang.get(locale, "ui.scrubys.rename.confirm_btn"))).append("</button>");
             sb.append("<p style=\"flex-weight: 1; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("</div>");
+            sb.append("<p style=\"anchor-height: 12; font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
             sb.append("</div>");
             sb.append("<p style=\"font-size: 1; color: ").append(ScrubyColors.BG_SURFACE).append(";\"> </p>");
         }
@@ -2105,6 +2111,8 @@ public final class ScrubySkillTreePage {
 
             // === Umbenennen (rename-[slot]) — opens rename dialog ===
             tryAddListener(builder, "rename-" + s, (event) -> {
+                pendingDelete.remove(ownerUuid);
+                pendingReset.remove(ownerUuid);
                 pendingRename.put(ownerUuid, s);
                 pendingRenameText.remove(ownerUuid);
                 reopenScrubys(store, ownerRef, playerRef);
@@ -2112,6 +2120,9 @@ public final class ScrubySkillTreePage {
 
             // === Delete (delete-[slot]) — opens confirm dialog ===
             tryAddListener(builder, "delete-" + s, (event) -> {
+                pendingRename.remove(ownerUuid);
+                pendingRenameText.remove(ownerUuid);
+                pendingReset.remove(ownerUuid);
                 pendingDelete.put(ownerUuid, s);
                 reopenScrubys(store, ownerRef, playerRef);
             });
@@ -2123,6 +2134,9 @@ public final class ScrubySkillTreePage {
             boolean onCooldown = lastRespec > 0 && (lastRespec + cooldownMs) > now;
             if (!onCooldown) {
                 tryAddListener(builder, "reset-" + s, (event) -> {
+                    pendingRename.remove(ownerUuid);
+                    pendingRenameText.remove(ownerUuid);
+                    pendingDelete.remove(ownerUuid);
                     pendingReset.put(ownerUuid, s);
                     reopenScrubys(store, ownerRef, playerRef);
                 });
@@ -4316,10 +4330,10 @@ public final class ScrubySkillTreePage {
                 + "@ConfirmHiddenLabel { color: " + ScrubyColors.BG_SURFACE + "; font-size: 14; font-weight: bold; text-align: center; vertical-align: center; }"
                 + "@ConfirmHiddenBg { background-color: " + ScrubyColors.BG_SURFACE + "; }"
                 // ── Green button states ──
-                + "@GreenBtnLabel { color: " + ScrubyColors.BG_PAGE + "; font-size: 12; font-weight: bold; }"
+                + "@GreenBtnLabel { color: " + ScrubyColors.BG_PAGE + "; font-size: 12; font-weight: bold; text-align: center; vertical-align: center; }"
                 + "@GreenBtnBg { background-color: " + ScrubyColors.GREEN_PRIMARY + "; }"
                 // ── Danger button states ──
-                + "@DangerBtnLabel { color: " + ScrubyColors.TEXT_BRIGHT + "; font-size: 12; font-weight: bold; }"
+                + "@DangerBtnLabel { color: " + ScrubyColors.TEXT_BRIGHT + "; font-size: 12; font-weight: bold; text-align: center; vertical-align: center; }"
                 + "@DangerBtnBg { background-color: #5a2020; }"
                 // ── Attribute button states ──
                 + "@AttrBtnLabel { color: " + ScrubyColors.TEXT_BRIGHT + "; font-size: 12; font-weight: bold; text-align: center; vertical-align: center; }"
