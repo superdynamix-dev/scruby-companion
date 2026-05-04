@@ -10,6 +10,7 @@ import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.modules.entity.damage.Damage;
 import com.hypixel.hytale.server.core.modules.entity.damage.DamageEventSystem;
 import com.hypixel.hytale.server.core.modules.entity.damage.DamageModule;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.server.npc.entities.NPCEntity;
 
@@ -68,36 +69,50 @@ public final class ScrubyDamageDetectionSystem extends DamageEventSystem {
         Ref<EntityStore> attackerRef = entitySource.getRef();
         if (attackerRef == null || !attackerRef.isValid()) return;
 
-        // Check if the attacker is a registered companion
-        if (!registry.isCompanion(attackerRef)) return;
-
         // Get the victim ref from the chunk
         Ref<EntityStore> victimRef = chunk.getReferenceTo(index);
         if (victimRef == null || !victimRef.isValid()) return;
 
-        // DEBUG: Log Scruby-on-Scruby physical hits
-        NPCEntity victimNpc = store.getComponent(victimRef, NPCEntity.getComponentType());
-        String attackerRole = "unknown";
-        String victimRole = "unknown";
-        try {
-            NPCEntity attackerNpc = store.getComponent(attackerRef, NPCEntity.getComponentType());
-            if (attackerNpc != null) attackerRole = attackerNpc.getRoleName();
-            if (victimNpc != null) victimRole = victimNpc.getRoleName();
-        } catch (Exception ignored) {}
-        if (attackerRole != null && attackerRole.contains("Scruby_") && victimRole != null && victimRole.contains("Scruby_")) {
-            LOGGER.atWarning().log("[Scruby-DEBUG] SCRUBY-ON-SCRUBY PHYSICAL HIT! Attacker=" + attackerRole + " Victim=" + victimRole + " DamageType=" + damage.getSource().getClass().getSimpleName());
-        }
-
-        // Record the hit — victim gets 3.5s burn/poison debuff
-        hitTracker.recordHit(victimRef);
-
-        // Record which owner's companion dealt this damage (for kill attribution)
-        for (Map.Entry<UUID, Ref<EntityStore>> entry : registry.entriesSnapshot()) {
-            if (entry.getValue() != null && entry.getValue().getIndex() == attackerRef.getIndex()) {
-                hitTracker.recordAttacker(victimRef, entry.getKey());
-                hitTracker.recordKillCredit(victimRef, entry.getKey());
-                break;
+        // Branch A: attacker is a registered companion — full hit tracking (debuff + attacker + kill credit)
+        if (registry.isCompanion(attackerRef)) {
+            // DEBUG: Log Scruby-on-Scruby physical hits
+            NPCEntity victimNpc = store.getComponent(victimRef, NPCEntity.getComponentType());
+            String attackerRole = "unknown";
+            String victimRole = "unknown";
+            try {
+                NPCEntity attackerNpc = store.getComponent(attackerRef, NPCEntity.getComponentType());
+                if (attackerNpc != null) attackerRole = attackerNpc.getRoleName();
+                if (victimNpc != null) victimRole = victimNpc.getRoleName();
+            } catch (Exception ignored) {}
+            if (attackerRole != null && attackerRole.contains("Scruby_") && victimRole != null && victimRole.contains("Scruby_")) {
+                LOGGER.atWarning().log("[Scruby-DEBUG] SCRUBY-ON-SCRUBY PHYSICAL HIT! Attacker=" + attackerRole + " Victim=" + victimRole + " DamageType=" + damage.getSource().getClass().getSimpleName());
             }
+
+            // Record the hit — victim gets 3.5s burn/poison debuff
+            hitTracker.recordHit(victimRef);
+
+            // Record which owner's companion dealt this damage (for kill attribution)
+            for (Map.Entry<UUID, Ref<EntityStore>> entry : registry.entriesSnapshot()) {
+                if (entry.getValue() != null && entry.getValue().getIndex() == attackerRef.getIndex()) {
+                    hitTracker.recordAttacker(victimRef, entry.getKey());
+                    hitTracker.recordKillCredit(victimRef, entry.getKey());
+                    break;
+                }
+            }
+            return;
         }
+
+        // Branch B: attacker is a player with a live registered companion — kill credit only.
+        // Intentionally no recordHit (no skill DoT debuff) and no recordAttacker (no expiring
+        // attacker tracking). Player-driven kills count for XP/Loot, but the companion's skill
+        // ticks remain gated on actual companion hits.
+        PlayerRef attackerPlayerRef = store.getComponent(attackerRef, PlayerRef.getComponentType());
+        if (attackerPlayerRef == null) return;
+
+        UUID playerUuid = attackerPlayerRef.getUuid();
+        Ref<EntityStore> companionRef = registry.getCompanionRef(playerUuid);
+        if (companionRef == null || !companionRef.isValid()) return;
+
+        hitTracker.recordKillCredit(victimRef, playerUuid);
     }
 }
