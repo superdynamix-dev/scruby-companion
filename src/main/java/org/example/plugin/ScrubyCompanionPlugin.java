@@ -208,9 +208,7 @@ public class ScrubyCompanionPlugin extends JavaPlugin {
                 new ScrubyCombatModeOverrideService(
                         this.bindingService,
                         this.companionRegistry,
-                        this.resetService,
-                        this.spawnService,
-                        this.evolutionService
+                        this.resetService
                 );
 
         ScrubyPlayerLifecycleListener lifecycleListener =

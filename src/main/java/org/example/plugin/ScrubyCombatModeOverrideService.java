@@ -4,14 +4,9 @@ package org.example.plugin;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
-import com.hypixel.hytale.math.vector.Vector3d;
-import com.hypixel.hytale.math.vector.Vector3f;
-import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
-import com.hypixel.hytale.server.npc.NPCPlugin;
 import com.hypixel.hytale.server.npc.entities.NPCEntity;
-import it.unimi.dsi.fastutil.Pair;
 
 import javax.annotation.Nonnull;
 import java.util.List;
@@ -33,21 +28,15 @@ public final class ScrubyCombatModeOverrideService {
     private final ScrubyBindingService bindingService;
     private final ScrubyActiveCompanionRegistry companionRegistry;
     private final ScrubyCompanionResetService resetService;
-    private final ScrubyCompanionSpawnService spawnService;
-    private final ScrubyEvolutionService evolutionService;
 
     public ScrubyCombatModeOverrideService(
             @Nonnull ScrubyBindingService bindingService,
             @Nonnull ScrubyActiveCompanionRegistry companionRegistry,
-            @Nonnull ScrubyCompanionResetService resetService,
-            @Nonnull ScrubyCompanionSpawnService spawnService,
-            @Nonnull ScrubyEvolutionService evolutionService
+            @Nonnull ScrubyCompanionResetService resetService
     ) {
         this.bindingService = Objects.requireNonNull(bindingService);
         this.companionRegistry = Objects.requireNonNull(companionRegistry);
         this.resetService = Objects.requireNonNull(resetService);
-        this.spawnService = Objects.requireNonNull(spawnService);
-        this.evolutionService = Objects.requireNonNull(evolutionService);
     }
 
     public static boolean isTempleWorld(@Nonnull String worldName) {
@@ -92,9 +81,20 @@ public final class ScrubyCombatModeOverrideService {
     }
 
     /**
-     * Enter-Flow: if profile is currently aggressive, save the previous mode
-     * and force it to PASSIVE. Respawns the companion entity in the current
-     * store with the new (passive) role if it currently exists.
+     * Enter-Flow. Two independent override pieces are tracked here:
+     *
+     * 1. Combat-mode override: aggressive companions get forced to PASSIVE for
+     *    the duration of the temple visit (existing behaviour).
+     *
+     * 2. Entity-UUID parking: the follow companion's home-world entity UUID is
+     *    saved and the active reference is cleared, so the subsequent
+     *    onPlayerReadyInternal flow spawns a fresh, throwaway temple companion
+     *    instead of blocking on a stale cross-store ref. Without this, the
+     *    home entity later reactivates as an unregistered orphan once the
+     *    player returns and home chunks reload (#scruby-temple-orphan).
+     *
+     * Stationed companions don't follow into the temple, so the entity-UUID
+     * parking step skips them; only the combat-mode override applies.
      */
     private boolean applyTempleOverride(
             @Nonnull Store<EntityStore> store,
@@ -104,22 +104,58 @@ public final class ScrubyCombatModeOverrideService {
             @Nonnull CompanionProfile profile,
             @Nonnull ScrubyOwnerBindingComponent binding
     ) {
-        if (!profile.isAggressive()) return false;
-        if (profile.hasTempleOverride()) return false;
+        boolean changed = false;
 
-        profile.setCombatModeBeforeTempleOverride(profile.getCombatMode());
-        profile.setCombatModeInternal("PASSIVE");
-        LOGGER.atInfo().log("[Scruby] Temple override ENTER: slot=" + profile.getSlotId()
-                + " savedMode=" + profile.getCombatModeBeforeTempleOverride());
+        // (1) Combat-mode override
+        if (profile.isAggressive() && !profile.hasTempleOverride()) {
+            profile.setCombatModeBeforeTempleOverride(profile.getCombatMode());
+            profile.setCombatModeInternal("PASSIVE");
+            LOGGER.atInfo().log("[Scruby] Temple ENTER combatMode: slot=" + profile.getSlotId()
+                    + " savedMode=" + profile.getCombatModeBeforeTempleOverride());
+            changed = true;
+        }
 
-        respawnCompanionInStore(store, ownerRef, playerRef, ownerUuid, profile, binding);
-        return true;
+        // (2) Entity-UUID parking — only for the active follow companion.
+        boolean isActiveSlot = binding.getActiveSlot() == profile.getSlotId();
+        if (isActiveSlot
+                && !profile.isStationedAtBase()
+                && !profile.hasTempleEntityOverride()
+                && profile.hasCompanionEntityReference()) {
+
+            String parkedUuid = profile.getCompanionEntityUuid();
+            String currentWorldUuid = playerRef.getWorldUuid() != null
+                    ? playerRef.getWorldUuid().toString() : "";
+
+            profile.setCompanionEntityUuidBeforeTempleOverride(parkedUuid);
+            profile.setCompanionWorldUuidBeforeTempleOverride(currentWorldUuid);
+
+            // Drop the active reference so onPlayerReadyInternal falls through
+            // to spawnFreshCompanion in the temple store.
+            profile.clearCompanionEntityReference();
+
+            // Clean-slate the registry: any cross-store ref left over from the
+            // home world would block spawnService's existing-companion guard
+            // and make smart-follow flap on the next tick.
+            companionRegistry.unregister(ownerUuid);
+            resetService.resetOwnerSession(ownerUuid);
+
+            LOGGER.atInfo().log("[Scruby] Temple ENTER entityUuid: slot=" + profile.getSlotId()
+                    + " parkedUuid=" + parkedUuid);
+            changed = true;
+        }
+
+        return changed;
     }
 
     /**
-     * Leave-Flow: if an override is active, restore the saved mode and clear
-     * the override. Respawns the companion entity with the restored role if
-     * it currently exists in this store.
+     * Leave-Flow. Restores both override pieces independently — combat mode
+     * back to AGGRESSIVE if it was saved, and the home-world entity UUID back
+     * onto the profile so the subsequent onPlayerReadyInternal lookup can
+     * reattach to it (immediately if chunks are loaded, or via the
+     * pendingResolves wait-and-retry once chunks finish loading).
+     *
+     * The temple instance's throwaway companion is left behind and is
+     * collected when the instance unloads.
      */
     private boolean restoreFromTempleOverride(
             @Nonnull Store<EntityStore> store,
@@ -129,104 +165,66 @@ public final class ScrubyCombatModeOverrideService {
             @Nonnull CompanionProfile profile,
             @Nonnull ScrubyOwnerBindingComponent binding
     ) {
-        if (!profile.hasTempleOverride()) return false;
+        boolean changed = false;
 
-        String restored = profile.getCombatModeBeforeTempleOverride();
-        profile.setCombatModeBeforeTempleOverride(null);
-        profile.setCombatModeInternal(restored);
-        LOGGER.atInfo().log("[Scruby] Temple override LEAVE: slot=" + profile.getSlotId()
-                + " restoredMode=" + restored);
+        // (1) Entity-UUID restore — runs before combat mode so the lookup in
+        // onPlayerReadyInternal sees the parked UUID immediately.
+        if (profile.hasTempleEntityOverride()) {
+            String parkedUuid = profile.getCompanionEntityUuidBeforeTempleOverride();
+            String straySpawnUuid = profile.getCompanionEntityUuid();
 
-        respawnCompanionInStore(store, ownerRef, playerRef, ownerUuid, profile, binding);
-        return true;
-    }
-
-    /**
-     * Shared respawn logic. Handles both the active companion (via
-     * spawnService) and stationed companions (via direct NPCPlugin.spawnNPC).
-     * No-op if the companion entity is not present in the current store.
-     */
-    private void respawnCompanionInStore(
-            @Nonnull Store<EntityStore> store,
-            @Nonnull Ref<EntityStore> ownerRef,
-            @Nonnull PlayerRef playerRef,
-            @Nonnull UUID ownerUuid,
-            @Nonnull CompanionProfile profile,
-            @Nonnull ScrubyOwnerBindingComponent binding
-    ) {
-        String entityUuidStr = profile.getCompanionEntityUuid();
-        Ref<EntityStore> existingRef = null;
-        if (entityUuidStr != null && !entityUuidStr.isEmpty()) {
-            try {
-                UUID eUuid = UUID.fromString(entityUuidStr);
-                existingRef = store.getExternalData().getRefFromUUID(eUuid);
-            } catch (Exception ignored) {
+            // Defensive cleanup: Hytale's instance-exit migrates the player's
+            // last in-temple companion entity into the home world along with
+            // the player. Without this removal, that migrated entity lives on
+            // as an unregistered orphan that follows but is not F-interactable
+            // — exactly the bug we're fixing. Lookup the prior UUID in the
+            // CURRENT (home) store and remove it if present.
+            if (straySpawnUuid != null
+                    && !straySpawnUuid.isEmpty()
+                    && !straySpawnUuid.equals(parkedUuid)) {
+                try {
+                    UUID strayUuid = UUID.fromString(straySpawnUuid);
+                    Ref<EntityStore> strayRef = store.getExternalData().getRefFromUUID(strayUuid);
+                    if (strayRef != null && strayRef.isValid() && strayRef.getStore() == store) {
+                        NPCEntity strayNpc = store.getComponent(strayRef, NPCEntity.getComponentType());
+                        if (strayNpc != null) {
+                            strayNpc.remove();
+                            LOGGER.atInfo().log("[Scruby] Temple LEAVE: removed migrated temple companion "
+                                    + straySpawnUuid + " from home world");
+                        }
+                    }
+                } catch (Exception e) {
+                    LOGGER.atInfo().log("[Scruby] Temple LEAVE: stray cleanup failed: " + e.getMessage());
+                }
             }
-        }
 
-        boolean entityPresentHere = existingRef != null && existingRef.isValid();
+            profile.setCompanionEntityUuid(parkedUuid);
+            profile.setEntityMissing(false);
+            profile.setCompanionEntityUuidBeforeTempleOverride("");
+            profile.setCompanionWorldUuidBeforeTempleOverride("");
 
-        if (entityPresentHere) {
-            resetService.clearLockedTarget(store, existingRef);
-            NPCEntity npcEntity = store.getComponent(existingRef, NPCEntity.getComponentType());
-            if (npcEntity != null) npcEntity.remove();
-        }
-
-        boolean isActiveSlot = binding.getActiveSlot() == profile.getSlotId();
-        if (isActiveSlot && entityPresentHere) {
+            // Drop the temple companion's registry entry so spawnService's
+            // existing-companion guard doesn't block a fresh spawn fallback,
+            // and so registerExistingCompanion has a clean slot to fill.
             companionRegistry.unregister(ownerUuid);
             resetService.resetOwnerSession(ownerUuid);
+
+            LOGGER.atInfo().log("[Scruby] Temple LEAVE entityUuid: slot=" + profile.getSlotId()
+                    + " restoredUuid=" + parkedUuid);
+            changed = true;
         }
 
-        profile.setCompanionEntityUuid("");
-        profile.setEntityMissing(!entityPresentHere);
-        profile.setManuallyDespawned(false);
-
-        if (!entityPresentHere) {
-            return;
+        // (2) Combat-mode restore.
+        if (profile.hasTempleOverride()) {
+            String restored = profile.getCombatModeBeforeTempleOverride();
+            profile.setCombatModeBeforeTempleOverride(null);
+            profile.setCombatModeInternal(restored);
+            LOGGER.atInfo().log("[Scruby] Temple LEAVE combatMode: slot=" + profile.getSlotId()
+                    + " restoredMode=" + restored);
+            changed = true;
         }
 
-        if (profile.isStationedAtBase()) {
-            respawnStationed(store, ownerUuid, profile, binding);
-        } else {
-            spawnService.spawnCompanion(store, ownerRef, playerRef, ownerUuid);
-        }
+        return changed;
     }
 
-    private void respawnStationed(
-            @Nonnull Store<EntityStore> store,
-            @Nonnull UUID ownerUuid,
-            @Nonnull CompanionProfile profile,
-            @Nonnull ScrubyOwnerBindingComponent binding
-    ) {
-        try {
-            String stationedRole = evolutionService.getStationedRoleNameForProfile(profile);
-            Vector3d spawnPos = new Vector3d(
-                    profile.getStationX(), profile.getStationY(), profile.getStationZ());
-
-            Pair<Ref<EntityStore>, ?> result = NPCPlugin.get().spawnNPC(
-                    store, stationedRole, null, spawnPos, new Vector3f(0f, 0f, 0f));
-
-            if (result == null || result.left() == null) {
-                profile.setEntityMissing(true);
-                return;
-            }
-
-            Ref<EntityStore> newRef = result.left();
-            UUIDComponent uuidComp = store.getComponent(newRef, UUIDComponent.getComponentType());
-            if (uuidComp != null) {
-                profile.setCompanionEntityUuid(uuidComp.getUuid().toString());
-            }
-            profile.setEntityMissing(false);
-            ScrubyArmorService.applyVisualArmor(store, newRef, profile);
-
-            if (binding.getActiveSlot() == profile.getSlotId()) {
-                companionRegistry.register(ownerUuid, newRef);
-            }
-        } catch (Exception e) {
-            LOGGER.atSevere().log("[Scruby] Failed to respawn stationed companion slot "
-                    + profile.getSlotId() + ": " + e.getMessage());
-            profile.setEntityMissing(true);
-        }
-    }
 }

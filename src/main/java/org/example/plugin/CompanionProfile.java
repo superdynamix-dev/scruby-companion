@@ -51,6 +51,8 @@ public final class CompanionProfile {
     private String equipHands;
     private String combatMode;
     private String combatModeBeforeTempleOverride;
+    private String companionEntityUuidBeforeTempleOverride;
+    private String companionWorldUuidBeforeTempleOverride;
 
     public CompanionProfile() {
         this.slotId = 0;
@@ -92,6 +94,8 @@ public final class CompanionProfile {
         this.equipHands = "";
         this.combatMode = "PASSIVE";
         this.combatModeBeforeTempleOverride = null;
+        this.companionEntityUuidBeforeTempleOverride = "";
+        this.companionWorldUuidBeforeTempleOverride = "";
     }
 
     // --- Getters and Setters ---
@@ -270,6 +274,35 @@ public final class CompanionProfile {
         return combatModeBeforeTempleOverride != null && !combatModeBeforeTempleOverride.isEmpty();
     }
 
+    @Nonnull
+    public String getCompanionEntityUuidBeforeTempleOverride() {
+        return companionEntityUuidBeforeTempleOverride != null ? companionEntityUuidBeforeTempleOverride : "";
+    }
+
+    public void setCompanionEntityUuidBeforeTempleOverride(@Nonnull String value) {
+        this.companionEntityUuidBeforeTempleOverride = value != null ? value : "";
+    }
+
+    @Nonnull
+    public String getCompanionWorldUuidBeforeTempleOverride() {
+        return companionWorldUuidBeforeTempleOverride != null ? companionWorldUuidBeforeTempleOverride : "";
+    }
+
+    public void setCompanionWorldUuidBeforeTempleOverride(@Nonnull String value) {
+        this.companionWorldUuidBeforeTempleOverride = value != null ? value : "";
+    }
+
+    /**
+     * True while a Forgotten-Temple visit has parked the home-world companion's
+     * entity UUID for restore on exit. Independent of {@link #hasTempleOverride()}
+     * (which tracks only combat-mode override) — passive companions also use
+     * this flag, since the orphan-on-exit bug applies regardless of combat mode.
+     */
+    public boolean hasTempleEntityOverride() {
+        return companionEntityUuidBeforeTempleOverride != null
+                && !companionEntityUuidBeforeTempleOverride.isEmpty();
+    }
+
     // --- Convenience Methods ---
 
     public boolean hasCompanionEntityReference() {
@@ -343,6 +376,8 @@ public final class CompanionProfile {
         this.equipHands = "";
         this.combatMode = "PASSIVE";
         this.combatModeBeforeTempleOverride = null;
+        this.companionEntityUuidBeforeTempleOverride = "";
+        this.companionWorldUuidBeforeTempleOverride = "";
     }
 
     // --- JSON Serialization ---
@@ -390,7 +425,9 @@ public final class CompanionProfile {
         appendString(sb, "equipLegs", equipLegs != null ? equipLegs : ""); sb.append(',');
         appendString(sb, "equipHands", equipHands != null ? equipHands : ""); sb.append(',');
         appendString(sb, "combatMode", combatMode != null ? combatMode : "PASSIVE"); sb.append(',');
-        appendString(sb, "combatModeBeforeTempleOverride", combatModeBeforeTempleOverride != null ? combatModeBeforeTempleOverride : "");
+        appendString(sb, "combatModeBeforeTempleOverride", combatModeBeforeTempleOverride != null ? combatModeBeforeTempleOverride : ""); sb.append(',');
+        appendString(sb, "companionEntityUuidBeforeTempleOverride", companionEntityUuidBeforeTempleOverride != null ? companionEntityUuidBeforeTempleOverride : ""); sb.append(',');
+        appendString(sb, "companionWorldUuidBeforeTempleOverride", companionWorldUuidBeforeTempleOverride != null ? companionWorldUuidBeforeTempleOverride : "");
         sb.append('}');
         return sb.toString();
     }
@@ -451,6 +488,8 @@ public final class CompanionProfile {
         p.combatMode = readStringField(trimmed, "combatMode", "PASSIVE");
         String overrideRaw = readStringField(trimmed, "combatModeBeforeTempleOverride", "");
         p.combatModeBeforeTempleOverride = overrideRaw.isEmpty() ? null : overrideRaw;
+        p.companionEntityUuidBeforeTempleOverride = readStringField(trimmed, "companionEntityUuidBeforeTempleOverride", "");
+        p.companionWorldUuidBeforeTempleOverride = readStringField(trimmed, "companionWorldUuidBeforeTempleOverride", "");
         return p;
     }
 
