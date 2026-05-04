@@ -302,6 +302,9 @@ public final class ScrubyPlayerLifecycleListener {
         this.resetService.clearLockedTarget(store, companionRef);
         this.registry.register(ownerUuid, companionRef);
 
+        LOGGER.atInfo().log("[Scruby] registerExistingCompanion: reattached owner=" + ownerUuid
+                + " refIdx=" + companionRef.getIndex() + " profileSlot=" + profile.getSlotId());
+
         // Re-apply attribute and skill modifiers so balancing changes from a plugin
         // update take effect on companions already living in the world. Modifiers
         // are stored on the entity's StatMap and otherwise stay frozen at the values
@@ -361,10 +364,37 @@ public final class ScrubyPlayerLifecycleListener {
         List<CompanionProfile> profiles = binding.getProfiles();
         int activeSlot = binding.getActiveSlot();
 
+        // Resolve current world's name once. Stationed companions are bound to
+        // a specific world via stationWorldId — we must NEVER re-spawn them in
+        // a different world's store. Without this filter, entering a Forgotten
+        // Temple instance respawns home-stationed Scrubys at their home coords
+        // inside the temple-instance store, which (a) places the entity in
+        // unloaded chunks ("moved into a chunk that isn't currently loaded"
+        // warnings), (b) overwrites profile.companionEntityUuid so the
+        // original home-stationed entity becomes an orphan in its real world,
+        // and (c) stays as a corpse in the destroyed temple instance forever.
+        String currentWorldName = "";
+        try {
+            if (entityStore.getWorld() != null && entityStore.getWorld().getName() != null) {
+                currentWorldName = entityStore.getWorld().getName();
+            }
+        } catch (Exception ignored) {}
+
         for (CompanionProfile p : profiles) {
             if (p.getSlotId() == activeSlot) continue; // active companion handled above
             if (!p.isStationedAtBase()) continue; // not stationed
             if (ScrubyBaseStationService.MODE_NONE.equals(p.getStationMode())) continue;
+
+            // World filter: stationed lives in its own world. Empty stationWorldId
+            // is legacy data (pre-stationWorldId tracking) — treat as match-any
+            // for backwards compat.
+            String stationWorldName = p.getStationWorldId();
+            if (!stationWorldName.isEmpty() && !stationWorldName.equals(currentWorldName)) {
+                LOGGER.atInfo().log("[Scruby] Stationed slot " + p.getSlotId()
+                        + " stationWorld='" + stationWorldName + "' != currentWorld='"
+                        + currentWorldName + "', skipping respawn here");
+                continue;
+            }
 
             // Check if entity still exists in world
             String entityUuidStr = p.getCompanionEntityUuid();

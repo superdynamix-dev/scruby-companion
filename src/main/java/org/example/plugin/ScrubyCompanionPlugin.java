@@ -208,7 +208,8 @@ public class ScrubyCompanionPlugin extends JavaPlugin {
                 new ScrubyCombatModeOverrideService(
                         this.bindingService,
                         this.companionRegistry,
-                        this.resetService
+                        this.resetService,
+                        this.scrubyOwnerBindingComponentType
                 );
 
         ScrubyPlayerLifecycleListener lifecycleListener =
@@ -454,6 +455,12 @@ public class ScrubyCompanionPlugin extends JavaPlugin {
                         this.resetService,
                         this.spawnService,
                         this.evolutionService
+                )
+        );
+        this.getCommandRegistry().registerCommand(
+                new ScrubyAdminDebugStateCommand(
+                        this.scrubyOwnerBindingComponentType,
+                        this.companionRegistry
                 )
         );
         this.getCommandRegistry().registerCommand(new ScrubyMuteInventoryCommand(this.bindingService));

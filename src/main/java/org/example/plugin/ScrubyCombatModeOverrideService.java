@@ -1,16 +1,21 @@
 // Datei: ScrubyCombatModeOverrideService.java
 package org.example.plugin;
 
+import com.hypixel.hytale.component.ComponentType;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.server.npc.entities.NPCEntity;
 
 import javax.annotation.Nonnull;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -28,15 +33,18 @@ public final class ScrubyCombatModeOverrideService {
     private final ScrubyBindingService bindingService;
     private final ScrubyActiveCompanionRegistry companionRegistry;
     private final ScrubyCompanionResetService resetService;
+    private final ComponentType<EntityStore, ScrubyOwnerBindingComponent> bindingComponentType;
 
     public ScrubyCombatModeOverrideService(
             @Nonnull ScrubyBindingService bindingService,
             @Nonnull ScrubyActiveCompanionRegistry companionRegistry,
-            @Nonnull ScrubyCompanionResetService resetService
+            @Nonnull ScrubyCompanionResetService resetService,
+            @Nonnull ComponentType<EntityStore, ScrubyOwnerBindingComponent> bindingComponentType
     ) {
         this.bindingService = Objects.requireNonNull(bindingService);
         this.companionRegistry = Objects.requireNonNull(companionRegistry);
         this.resetService = Objects.requireNonNull(resetService);
+        this.bindingComponentType = Objects.requireNonNull(bindingComponentType);
     }
 
     public static boolean isTempleWorld(@Nonnull String worldName) {
@@ -74,10 +82,105 @@ public final class ScrubyCombatModeOverrideService {
             }
         }
 
+        // After restoring on temple-exit, sweep the new world for orphaned
+        // Scruby_*-role entities that have no profile-anchor in any binding.
+        // Hytale's instance-exit can migrate any of several intermediate spawns
+        // (initial temple spawn, smart-follow respawn, stationed copies) into
+        // the parent world. The targeted cleanup we removed only checked the
+        // single most-recent profile UUID; in practice Hytale picks a different
+        // one. Scanning by role-name + matching against ALL binding UUIDs
+        // (live + parked, across all bound players in this world) catches
+        // every variant.
+        if (!enteringTemple && anyChanged) {
+            sweepOrphanScrubysInWorld(store, newWorldName);
+        }
+
         if (!anyChanged) return;
 
         binding.setProfiles(profiles);
         ScrubyCompanionPlugin.savePlayerAsync(store, ownerRef, ownerUuid);
+    }
+
+    /**
+     * Removes every Scruby_*-role NPC entity in the given world's store whose
+     * UUID is not referenced by any binding's profile (live UUID or parked
+     * BeforeOverride UUID), across all bindings currently in this world.
+     *
+     * This is the authoritative orphan-removal path: it doesn't depend on
+     * which intermediate profile UUID Hytale happened to migrate, and it
+     * ignores entity history — anything not anchored to a binding right now
+     * is by definition a runaway and should be removed.
+     *
+     * Other players' active companions are protected because their binding's
+     * profile UUIDs go into the same valid-set.
+     */
+    private void sweepOrphanScrubysInWorld(
+            @Nonnull Store<EntityStore> store,
+            @Nonnull String worldName
+    ) {
+        // Phase 1: build the union of all binding-anchored UUIDs in this world.
+        Set<UUID> validUuids = new HashSet<>();
+        store.forEachChunk(bindingComponentType, (chunk, cmdBuf) -> {
+            int size = chunk.size();
+            for (int i = 0; i < size; i++) {
+                ScrubyOwnerBindingComponent b = chunk.getComponent(i, bindingComponentType);
+                if (b == null || !b.hasBinding()) continue;
+                for (CompanionProfile p : b.getProfiles()) {
+                    addUuidIfParseable(validUuids, p.getCompanionEntityUuid());
+                    addUuidIfParseable(validUuids, p.getCompanionEntityUuidBeforeTempleOverride());
+                }
+            }
+        });
+
+        // Phase 2: collect Scruby_*-role NPC refs whose UUID is NOT in validUuids.
+        List<Ref<EntityStore>> orphans = new ArrayList<>();
+        store.forEachChunk(NPCEntity.getComponentType(), (chunk, cmdBuf) -> {
+            int size = chunk.size();
+            for (int i = 0; i < size; i++) {
+                Ref<EntityStore> ref = chunk.getReferenceTo(i);
+                if (ref == null || !ref.isValid()) continue;
+                NPCEntity npc = chunk.getComponent(i, NPCEntity.getComponentType());
+                if (npc == null) continue;
+                String roleName = npc.getRoleName();
+                if (roleName == null || !roleName.startsWith("Scruby_")) continue;
+                UUIDComponent uc = chunk.getComponent(i, UUIDComponent.getComponentType());
+                if (uc == null) continue;
+                if (validUuids.contains(uc.getUuid())) continue;
+                orphans.add(ref);
+            }
+        });
+
+        // Phase 3: remove. Each remove is best-effort; keep counting on either
+        // a thrown exception or a `false` return so the summary log is honest.
+        int removed = 0;
+        for (Ref<EntityStore> ref : orphans) {
+            if (!ref.isValid()) continue;
+            NPCEntity npc = store.getComponent(ref, NPCEntity.getComponentType());
+            if (npc == null) continue;
+            try {
+                if (npc.remove()) {
+                    removed++;
+                } else {
+                    LOGGER.atWarning().log("[Scruby] Temple LEAVE sweep: remove() returned false for refIdx="
+                            + ref.getIndex());
+                }
+            } catch (Exception e) {
+                LOGGER.atWarning().log("[Scruby] Temple LEAVE sweep: remove failed for refIdx="
+                        + ref.getIndex() + ": " + e.getMessage());
+            }
+        }
+
+        if (!orphans.isEmpty()) {
+            LOGGER.atInfo().log("[Scruby] Temple LEAVE sweep: removed " + removed + "/" + orphans.size()
+                    + " orphan Scruby entities in world='" + worldName + "'");
+        }
+    }
+
+    private static void addUuidIfParseable(@Nonnull Set<UUID> target, String raw) {
+        if (raw == null || raw.isEmpty()) return;
+        try {
+            target.add(UUID.fromString(raw));
+        } catch (IllegalArgumentException ignored) {}
     }
 
     /**
@@ -168,35 +271,12 @@ public final class ScrubyCombatModeOverrideService {
         boolean changed = false;
 
         // (1) Entity-UUID restore — runs before combat mode so the lookup in
-        // onPlayerReadyInternal sees the parked UUID immediately.
+        // onPlayerReadyInternal sees the parked UUID immediately. Orphan
+        // cleanup of any other migrated/abandoned entities in this world is
+        // handled by sweepOrphanScrubysInWorld(), called once after this
+        // per-profile loop completes.
         if (profile.hasTempleEntityOverride()) {
             String parkedUuid = profile.getCompanionEntityUuidBeforeTempleOverride();
-            String straySpawnUuid = profile.getCompanionEntityUuid();
-
-            // Defensive cleanup: Hytale's instance-exit migrates the player's
-            // last in-temple companion entity into the home world along with
-            // the player. Without this removal, that migrated entity lives on
-            // as an unregistered orphan that follows but is not F-interactable
-            // — exactly the bug we're fixing. Lookup the prior UUID in the
-            // CURRENT (home) store and remove it if present.
-            if (straySpawnUuid != null
-                    && !straySpawnUuid.isEmpty()
-                    && !straySpawnUuid.equals(parkedUuid)) {
-                try {
-                    UUID strayUuid = UUID.fromString(straySpawnUuid);
-                    Ref<EntityStore> strayRef = store.getExternalData().getRefFromUUID(strayUuid);
-                    if (strayRef != null && strayRef.isValid() && strayRef.getStore() == store) {
-                        NPCEntity strayNpc = store.getComponent(strayRef, NPCEntity.getComponentType());
-                        if (strayNpc != null) {
-                            strayNpc.remove();
-                            LOGGER.atInfo().log("[Scruby] Temple LEAVE: removed migrated temple companion "
-                                    + straySpawnUuid + " from home world");
-                        }
-                    }
-                } catch (Exception e) {
-                    LOGGER.atInfo().log("[Scruby] Temple LEAVE: stray cleanup failed: " + e.getMessage());
-                }
-            }
 
             profile.setCompanionEntityUuid(parkedUuid);
             profile.setEntityMissing(false);
