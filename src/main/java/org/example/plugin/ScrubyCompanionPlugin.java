@@ -447,6 +447,15 @@ public class ScrubyCompanionPlugin extends JavaPlugin {
         this.getCommandRegistry().registerCommand(new ScrubyAdminDiscoveriesCommand(this.adminService));
         this.getCommandRegistry().registerCommand(new ScrubyAdminClearDiscoveriesCommand(this.adminService));
         this.getCommandRegistry().registerCommand(new ScrubyAdminConfigReloadCommand(this.configService));
+        this.getCommandRegistry().registerCommand(
+                new ScrubyAdminCleanupOrphansCommand(
+                        this.scrubyOwnerBindingComponentType,
+                        this.companionRegistry,
+                        this.resetService,
+                        this.spawnService,
+                        this.evolutionService
+                )
+        );
         this.getCommandRegistry().registerCommand(new ScrubyMuteInventoryCommand(this.bindingService));
         this.getCommandRegistry().registerCommand(new ScrubyMuteGreetingCommand(this.bindingService));
         this.getCommandRegistry().registerCommand(new ScrubyMuteCombatLogCommand(this.bindingService));
