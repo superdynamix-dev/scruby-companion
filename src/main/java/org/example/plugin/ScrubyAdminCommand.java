@@ -35,6 +35,7 @@ public final class ScrubyAdminCommand extends CommandBase {
         helpLine(ctx, "  /scruby-admin-clear-state <player> <slot>", "Reset stuck flags");
         helpLine(ctx, "  /scruby-admin-end-prestige <player>", "End prestige fight");
         helpLine(ctx, "  /scruby-admin-respawn <player> <slot>", "Respawn companion");
+        helpLine(ctx, "  /scruby-admin-cleanup-orphans", "Despawn orphan Scrubys + rebuild from bindings (current world)");
         ctx.sendMessage(Message.raw("  --- Discovery ---").color(SECTION_COLOR));
         helpLine(ctx, "  /scruby-admin-discoveries <player>", "Show discoveries");
         helpLine(ctx, "  /scruby-admin-clear-discoveries <player>", "Clear discoveries");
