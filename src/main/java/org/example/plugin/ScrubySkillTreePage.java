@@ -20,6 +20,7 @@ import com.hypixel.hytale.math.vector.Vector3f;
 import com.hypixel.hytale.protocol.packets.interface_.CustomUIEventBindingType;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.inventory.ItemStack;
+import com.hypixel.hytale.server.core.inventory.container.ItemContainer;
 import com.hypixel.hytale.server.core.ui.ItemGridSlot;
 import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
@@ -2898,10 +2899,15 @@ public final class ScrubySkillTreePage {
                         handleScrubyToPlayerDrop(store, ownerRef, playerRef, ownerUuid, profile,
                                 sourceSlot, targetSlot.shortValue(), itemId, qty);
                     } else {
-                        // Fallback: givePlayerItem (any slot), only the dropped qty
+                        // Fallback: place anywhere in player Storage/Hotbar (Backpack ignored)
                         int removedQty = inventoryService.removeFromSlotPartial(profile, sourceSlot, qty);
                         if (removedQty > 0) {
-                            givePlayerItem(store, ownerRef, itemId, removedQty);
+                            int leftover = givePlayerItem(store, ownerRef, itemId, removedQty);
+                            if (leftover > 0) {
+                                // Player inv full — return leftover to companion so nothing disappears
+                                inventoryService.smartStack(profile, itemId, leftover, ScrubyInventoryService.DEFAULT_MAX_STACK);
+                                playerRef.sendMessage(Message.raw(ScrubyLang.get(profile.getLocale(), "ui.transfer.backpack_full")));
+                            }
                             persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
                         }
                     }
@@ -2941,7 +2947,12 @@ public final class ScrubySkillTreePage {
             if (slotIdx == null) return;
             ScrubyInventoryService.InventoryEntry removed = inventoryService.removeItem(profile, slotIdx);
             if (removed != null) {
-                givePlayerItem(store, ownerRef, removed.getItemId(), removed.getQuantity());
+                int leftover = givePlayerItem(store, ownerRef, removed.getItemId(), removed.getQuantity());
+                if (leftover > 0) {
+                    // Player inv full — return leftover to companion so nothing disappears
+                    inventoryService.smartStack(profile, removed.getItemId(), leftover, ScrubyInventoryService.DEFAULT_MAX_STACK);
+                    playerRef.sendMessage(Message.raw(ScrubyLang.get(profile.getLocale(), "ui.transfer.backpack_full")));
+                }
                 persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
             }
         });
@@ -2952,7 +2963,104 @@ public final class ScrubySkillTreePage {
     // ===== Transfer Helper Methods =====
 
     /**
-     * Removes an item from the player's combined inventory at the given slot index.
+     * Resolved player-inventory slot: which sub-container the slot lives in,
+     * and its local index within that container.
+     *
+     * The transfer UI renders Storage + Hotbar (in that order) as a single grid.
+     * The Backpack section is intentionally NOT rendered, so all I/O must skip it.
+     */
+    private static final class PlayerSlotRef {
+        final ItemContainer container;
+        final short localSlot;
+        PlayerSlotRef(@Nonnull ItemContainer container, short localSlot) {
+            this.container = container;
+            this.localSlot = localSlot;
+        }
+    }
+
+    /**
+     * Maps a UI slot index (0..storageCap+hotbarCap-1) to the underlying
+     * Storage or Hotbar container with its local slot. Backpack is ignored.
+     * Returns {@code null} for out-of-range or missing-container cases.
+     */
+    @Nullable
+    private PlayerSlotRef resolvePlayerSlot(@Nullable com.hypixel.hytale.server.core.inventory.Inventory inv, int uiSlot) {
+        if (inv == null || uiSlot < 0) return null;
+        ItemContainer storage = inv.getStorage();
+        int storageCount = storage != null ? storage.getCapacity() : 0;
+        if (uiSlot < storageCount) {
+            return new PlayerSlotRef(storage, (short) uiSlot);
+        }
+        ItemContainer hotbar = inv.getHotbar();
+        int hotbarCount = hotbar != null ? hotbar.getCapacity() : 0;
+        int hotbarLocal = uiSlot - storageCount;
+        if (hotbarLocal < hotbarCount) {
+            return new PlayerSlotRef(hotbar, (short) hotbarLocal);
+        }
+        return null;
+    }
+
+    /**
+     * Places {@code quantity} of {@code itemId} into the player's Storage and/or
+     * Hotbar containers — Backpack is deliberately ignored. Stacks onto existing
+     * same-itemId stacks first, then fills empty slots. Returns the leftover
+     * quantity that did not fit (0 = everything placed).
+     */
+    private int givePlayerItemSafe(@Nonnull Player player, @Nonnull String itemId, int quantity) {
+        if (quantity <= 0) return 0;
+        com.hypixel.hytale.server.core.inventory.Inventory inv = player.getInventory();
+        if (inv == null) return quantity;
+        ItemContainer storage = inv.getStorage();
+        ItemContainer hotbar = inv.getHotbar();
+        int maxStack = ScrubyInventoryService.DEFAULT_MAX_STACK;
+        int remaining = quantity;
+
+        // Pass 1: stack onto existing same-itemId stacks (storage first, then hotbar).
+        if (storage != null) remaining = stackOntoExisting(storage, itemId, remaining, maxStack);
+        if (remaining <= 0) return 0;
+        if (hotbar != null) remaining = stackOntoExisting(hotbar, itemId, remaining, maxStack);
+        if (remaining <= 0) return 0;
+
+        // Pass 2: fill empty slots (storage first, then hotbar).
+        if (storage != null) remaining = fillEmptySlots(storage, itemId, remaining, maxStack);
+        if (remaining <= 0) return 0;
+        if (hotbar != null) remaining = fillEmptySlots(hotbar, itemId, remaining, maxStack);
+
+        return remaining;
+    }
+
+    private int stackOntoExisting(@Nonnull ItemContainer c, @Nonnull String itemId, int qty, int maxStack) {
+        short cap = c.getCapacity();
+        int remaining = qty;
+        for (short s = 0; s < cap && remaining > 0; s++) {
+            ItemStack stack = c.getItemStack(s);
+            if (stack == null || ItemStack.isEmpty(stack)) continue;
+            if (!stack.getItemId().equals(itemId)) continue;
+            int currentQty = stack.getQuantity();
+            int canAdd = maxStack - currentQty;
+            if (canAdd <= 0) continue;
+            int toAdd = Math.min(remaining, canAdd);
+            c.setItemStackForSlot(s, new ItemStack(itemId, currentQty + toAdd));
+            remaining -= toAdd;
+        }
+        return remaining;
+    }
+
+    private int fillEmptySlots(@Nonnull ItemContainer c, @Nonnull String itemId, int qty, int maxStack) {
+        short cap = c.getCapacity();
+        int remaining = qty;
+        for (short s = 0; s < cap && remaining > 0; s++) {
+            ItemStack stack = c.getItemStack(s);
+            if (stack != null && !ItemStack.isEmpty(stack)) continue;
+            int toAdd = Math.min(remaining, maxStack);
+            c.addItemStackToSlot(s, new ItemStack(itemId, toAdd));
+            remaining -= toAdd;
+        }
+        return remaining;
+    }
+
+    /**
+     * Removes an item from the player's Storage/Hotbar at the given UI slot index.
      */
     private void removePlayerItem(
             @Nonnull Store<EntityStore> store,
@@ -2962,14 +3070,11 @@ public final class ScrubySkillTreePage {
         try {
             Player player = store.getComponent(ownerRef, Player.getComponentType());
             if (player == null) return;
-            com.hypixel.hytale.server.core.inventory.Inventory inv = player.getInventory();
-            if (inv == null) return;
-            var container = inv.getCombinedBackpackStorageHotbar();
-            if (container != null) {
-                ItemStack stack = container.getItemStack(slotIndex);
-                if (stack != null && !ItemStack.isEmpty(stack)) {
-                    container.removeItemStackFromSlot(slotIndex, stack.getQuantity());
-                }
+            PlayerSlotRef ref = resolvePlayerSlot(player.getInventory(), slotIndex);
+            if (ref == null) return;
+            ItemStack stack = ref.container.getItemStack(ref.localSlot);
+            if (stack != null && !ItemStack.isEmpty(stack)) {
+                ref.container.removeItemStackFromSlot(ref.localSlot, stack.getQuantity());
             }
         } catch (Exception e) {
             LOGGER.atInfo().log("[Scruby-Transfer] removePlayerItem failed: " + e.getMessage());
@@ -2990,14 +3095,12 @@ public final class ScrubySkillTreePage {
         try {
             Player player = store.getComponent(ownerRef, Player.getComponentType());
             if (player == null) return 0;
-            com.hypixel.hytale.server.core.inventory.Inventory inv = player.getInventory();
-            if (inv == null) return 0;
-            var container = inv.getCombinedBackpackStorageHotbar();
-            if (container == null) return 0;
-            ItemStack stack = container.getItemStack(slotIndex);
+            PlayerSlotRef ref = resolvePlayerSlot(player.getInventory(), slotIndex);
+            if (ref == null) return 0;
+            ItemStack stack = ref.container.getItemStack(ref.localSlot);
             if (stack == null || ItemStack.isEmpty(stack)) return 0;
             int take = Math.min(qty, stack.getQuantity());
-            container.removeItemStackFromSlot(slotIndex, take);
+            ref.container.removeItemStackFromSlot(ref.localSlot, take);
             return take;
         } catch (Exception e) {
             LOGGER.atInfo().log("[Scruby-Transfer] removePlayerItemPartial failed: " + e.getMessage());
@@ -3006,9 +3109,10 @@ public final class ScrubySkillTreePage {
     }
 
     /**
-     * Gives an item to the player via Player.giveItem().
+     * Gives an item to the player, placing it in Storage/Hotbar only — Backpack is
+     * intentionally never used. Returns leftover qty that did not fit.
      */
-    private void givePlayerItem(
+    private int givePlayerItem(
             @Nonnull Store<EntityStore> store,
             @Nonnull Ref<EntityStore> ownerRef,
             @Nonnull String itemId,
@@ -3016,10 +3120,11 @@ public final class ScrubySkillTreePage {
     ) {
         try {
             Player player = store.getComponent(ownerRef, Player.getComponentType());
-            if (player == null) return;
-            player.giveItem(new ItemStack(itemId, quantity), ownerRef, store);
+            if (player == null) return quantity;
+            return givePlayerItemSafe(player, itemId, quantity);
         } catch (Exception e) {
             LOGGER.atInfo().log("[Scruby-Transfer] givePlayerItem failed: " + e.getMessage());
+            return quantity;
         }
     }
 
@@ -3037,11 +3142,9 @@ public final class ScrubySkillTreePage {
         try {
             Player player = store.getComponent(ownerRef, Player.getComponentType());
             if (player == null) return;
-            com.hypixel.hytale.server.core.inventory.Inventory inv = player.getInventory();
-            if (inv == null) return;
-            var container = inv.getCombinedBackpackStorageHotbar();
-            if (container == null) return;
-            ItemStack stack = container.getItemStack(playerSlotIndex);
+            PlayerSlotRef ref = resolvePlayerSlot(player.getInventory(), playerSlotIndex);
+            if (ref == null) return;
+            ItemStack stack = ref.container.getItemStack(ref.localSlot);
             if (stack == null || ItemStack.isEmpty(stack)) return;
 
             String itemId = stack.getItemId();
@@ -3049,11 +3152,14 @@ public final class ScrubySkillTreePage {
             int maxStack = ScrubyInventoryService.DEFAULT_MAX_STACK;
             int remaining = inventoryService.smartStack(profile, itemId, qty, maxStack);
             if (remaining < qty) {
-                // At least some items were transferred
-                container.removeItemStackFromSlot(playerSlotIndex, qty);
-                // Give back remainder to player if any
+                // At least some items were transferred — empty source slot, return leftover to player
+                ref.container.removeItemStackFromSlot(ref.localSlot, qty);
                 if (remaining > 0) {
-                    player.giveItem(new ItemStack(itemId, remaining), ownerRef, store);
+                    int undeliverable = givePlayerItemSafe(player, itemId, remaining);
+                    if (undeliverable > 0) {
+                        // Player inv truly out of space — return to companion so nothing is lost
+                        inventoryService.smartStack(profile, itemId, undeliverable, maxStack);
+                    }
                 }
                 persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
             } else {
@@ -3123,13 +3229,10 @@ public final class ScrubySkillTreePage {
             try {
                 Player playerLookup = store.getComponent(ownerRef, Player.getComponentType());
                 if (playerLookup != null && playerSourceSlot >= 0) {
-                    var invLookup = playerLookup.getInventory();
-                    if (invLookup != null) {
-                        var c = invLookup.getCombinedBackpackStorageHotbar();
-                        if (c != null) {
-                            ItemStack s = c.getItemStack(playerSourceSlot);
-                            if (s != null && !ItemStack.isEmpty(s)) sourceStackQty = s.getQuantity();
-                        }
+                    PlayerSlotRef srcRef = resolvePlayerSlot(playerLookup.getInventory(), playerSourceSlot);
+                    if (srcRef != null) {
+                        ItemStack s = srcRef.container.getItemStack(srcRef.localSlot);
+                        if (s != null && !ItemStack.isEmpty(s)) sourceStackQty = s.getQuantity();
                     }
                 }
             } catch (Exception ignore) {}
@@ -3158,16 +3261,13 @@ public final class ScrubySkillTreePage {
                         inventoryService.crossGridSwap(profile, scrubyTargetSlot, itemId, qty);
                 if (displaced != null) {
                     removePlayerItem(store, ownerRef, playerSourceSlot);
-                    // Place displaced Scruby item in the player's source slot
+                    // Place displaced Scruby item in the player's source slot (Storage or Hotbar — never Backpack)
                     Player player = store.getComponent(ownerRef, Player.getComponentType());
                     if (player != null) {
-                        var inv = player.getInventory();
-                        if (inv != null) {
-                            var container = inv.getCombinedBackpackStorageHotbar();
-                            if (container != null) {
-                                container.addItemStackToSlot(playerSourceSlot,
-                                        new ItemStack(displaced.getItemId(), displaced.getQuantity()));
-                            }
+                        PlayerSlotRef destRef = resolvePlayerSlot(player.getInventory(), playerSourceSlot);
+                        if (destRef != null) {
+                            destRef.container.addItemStackToSlot(destRef.localSlot,
+                                    new ItemStack(displaced.getItemId(), displaced.getQuantity()));
                         }
                     }
                     persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
@@ -3264,19 +3364,17 @@ public final class ScrubySkillTreePage {
 
             Player player = store.getComponent(ownerRef, Player.getComponentType());
             if (player == null) return;
-            var inv = player.getInventory();
-            if (inv == null) return;
-            var container = inv.getCombinedBackpackStorageHotbar();
-            if (container == null) return;
+            PlayerSlotRef tgtRef = resolvePlayerSlot(player.getInventory(), playerTargetSlot);
+            if (tgtRef == null) return;
 
-            ItemStack targetStack = container.getItemStack(playerTargetSlot);
+            ItemStack targetStack = tgtRef.container.getItemStack(tgtRef.localSlot);
             boolean targetEmpty = (targetStack == null || ItemStack.isEmpty(targetStack));
 
             if (targetEmpty) {
                 // Empty player slot → move requestedQty
                 int removed = inventoryService.removeFromSlotPartial(profile, scrubySourceSlot, requestedQty);
                 if (removed > 0) {
-                    container.addItemStackToSlot(playerTargetSlot, new ItemStack(scrubyEntry.getItemId(), removed));
+                    tgtRef.container.addItemStackToSlot(tgtRef.localSlot, new ItemStack(scrubyEntry.getItemId(), removed));
                     persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
                 }
             } else if (targetStack.getItemId().equals(scrubyEntry.getItemId())) {
@@ -3288,7 +3386,7 @@ public final class ScrubySkillTreePage {
                 int toTransfer = Math.min(requestedQty, canAdd);
                 int removed = inventoryService.removeFromSlotPartial(profile, scrubySourceSlot, toTransfer);
                 if (removed > 0) {
-                    container.addItemStackToSlot(playerTargetSlot, new ItemStack(scrubyEntry.getItemId(), removed));
+                    tgtRef.container.addItemStackToSlot(tgtRef.localSlot, new ItemStack(scrubyEntry.getItemId(), removed));
                     persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
                 }
             } else {
@@ -3299,9 +3397,9 @@ public final class ScrubySkillTreePage {
                 }
                 String playerItemId = targetStack.getItemId();
                 int playerQty = targetStack.getQuantity();
-                container.removeItemStackFromSlot(playerTargetSlot, playerQty);
+                tgtRef.container.removeItemStackFromSlot(tgtRef.localSlot, playerQty);
                 inventoryService.removeItem(profile, scrubySourceSlot);
-                container.addItemStackToSlot(playerTargetSlot, new ItemStack(scrubyEntry.getItemId(), scrubyEntry.getQuantity()));
+                tgtRef.container.addItemStackToSlot(tgtRef.localSlot, new ItemStack(scrubyEntry.getItemId(), scrubyEntry.getQuantity()));
                 inventoryService.addItemToSlot(profile, playerItemId, playerQty,
                         scrubySourceSlot, ScrubyInventoryService.DEFAULT_MAX_STACK);
                 persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
@@ -3328,11 +3426,9 @@ public final class ScrubySkillTreePage {
             if (scrubyTargetSlot < 0 || scrubyTargetSlot >= ScrubyInventoryService.MAX_SLOTS) return;
             Player player = store.getComponent(ownerRef, Player.getComponentType());
             if (player == null) return;
-            var inv = player.getInventory();
-            if (inv == null) return;
-            var container = inv.getCombinedBackpackStorageHotbar();
-            if (container == null) return;
-            ItemStack sourceStack = container.getItemStack((short) pending.sourceSlot);
+            PlayerSlotRef srcRef = resolvePlayerSlot(player.getInventory(), pending.sourceSlot);
+            if (srcRef == null) return;
+            ItemStack sourceStack = srcRef.container.getItemStack(srcRef.localSlot);
             if (sourceStack == null || ItemStack.isEmpty(sourceStack)) return;
             if (!sourceStack.getItemId().equals(pending.itemId)) return;
             int sourceQty = sourceStack.getQuantity();
@@ -3404,12 +3500,10 @@ public final class ScrubySkillTreePage {
 
             Player player = store.getComponent(ownerRef, Player.getComponentType());
             if (player == null) return;
-            var inv = player.getInventory();
-            if (inv == null) return;
-            var container = inv.getCombinedBackpackStorageHotbar();
-            if (container == null) return;
+            PlayerSlotRef tgtRef = resolvePlayerSlot(player.getInventory(), playerTargetSlot);
+            if (tgtRef == null) return;
 
-            ItemStack targetStack = container.getItemStack(playerTargetSlot);
+            ItemStack targetStack = tgtRef.container.getItemStack(tgtRef.localSlot);
             boolean targetEmpty = (targetStack == null || ItemStack.isEmpty(targetStack));
             if (!targetEmpty && !targetStack.getItemId().equals(pending.itemId)) {
                 playerRef.sendMessage(Message.raw(ScrubyLang.get(profile.getLocale(), "ui.transfer.slot_full")));
@@ -3425,7 +3519,7 @@ public final class ScrubySkillTreePage {
 
             int removed = inventoryService.removeFromSlotPartial(profile, pending.sourceSlot, canAdd);
             if (removed > 0) {
-                container.addItemStackToSlot(playerTargetSlot, new ItemStack(pending.itemId, removed));
+                tgtRef.container.addItemStackToSlot(tgtRef.localSlot, new ItemStack(pending.itemId, removed));
                 persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
             }
         } catch (Exception e) {
@@ -3457,12 +3551,12 @@ public final class ScrubySkillTreePage {
             }
             Player player = store.getComponent(ownerRef, Player.getComponentType());
             if (player == null) return;
-            var inv = player.getInventory();
-            if (inv == null) return;
-            var container = inv.getCombinedBackpackStorageHotbar();
-            if (container == null) return;
+            com.hypixel.hytale.server.core.inventory.Inventory inv = player.getInventory();
+            PlayerSlotRef srcRef = resolvePlayerSlot(inv, pending.sourceSlot);
+            PlayerSlotRef tgtRef = resolvePlayerSlot(inv, playerTargetSlot);
+            if (srcRef == null || tgtRef == null) return;
 
-            ItemStack sourceStack = container.getItemStack((short) pending.sourceSlot);
+            ItemStack sourceStack = srcRef.container.getItemStack(srcRef.localSlot);
             if (sourceStack == null || ItemStack.isEmpty(sourceStack)) return;
             if (!sourceStack.getItemId().equals(pending.itemId)) return;
             int sourceQty = sourceStack.getQuantity();
@@ -3477,7 +3571,7 @@ public final class ScrubySkillTreePage {
             }
             if (desired <= 0) return;
 
-            ItemStack targetStack = container.getItemStack(playerTargetSlot);
+            ItemStack targetStack = tgtRef.container.getItemStack(tgtRef.localSlot);
             boolean targetEmpty = (targetStack == null || ItemStack.isEmpty(targetStack));
             if (!targetEmpty && !targetStack.getItemId().equals(pending.itemId)) {
                 playerRef.sendMessage(Message.raw(ScrubyLang.get(profile.getLocale(), "ui.transfer.slot_full")));
@@ -3491,8 +3585,8 @@ public final class ScrubySkillTreePage {
             }
             if (canAdd <= 0) return;
 
-            container.removeItemStackFromSlot((short) pending.sourceSlot, canAdd);
-            container.addItemStackToSlot(playerTargetSlot, new ItemStack(pending.itemId, canAdd));
+            srcRef.container.removeItemStackFromSlot(srcRef.localSlot, canAdd);
+            tgtRef.container.addItemStackToSlot(tgtRef.localSlot, new ItemStack(pending.itemId, canAdd));
             persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
         } catch (Exception e) {
             LOGGER.atInfo().log("[Scruby-Transfer] handleRightDragPlayerInternal failed: " + e.getMessage());
@@ -3588,38 +3682,38 @@ public final class ScrubySkillTreePage {
 
             Player player = store.getComponent(ownerRef, Player.getComponentType());
             if (player == null) return;
-            var inv = player.getInventory();
-            if (inv == null) return;
-            var container = inv.getCombinedBackpackStorageHotbar();
-            if (container == null) return;
+            com.hypixel.hytale.server.core.inventory.Inventory inv = player.getInventory();
+            PlayerSlotRef srcRef = resolvePlayerSlot(inv, sourceSlot);
+            PlayerSlotRef tgtRef = resolvePlayerSlot(inv, targetSlot);
+            if (srcRef == null || tgtRef == null) return;
 
-            ItemStack sourceStack = container.getItemStack(sourceSlot);
+            ItemStack sourceStack = srcRef.container.getItemStack(srcRef.localSlot);
             if (sourceStack == null || ItemStack.isEmpty(sourceStack)) return;
             int sourceQty = sourceStack.getQuantity();
             int moveQty = (dropQty <= 0 || dropQty >= sourceQty) ? sourceQty : dropQty;
             boolean fullStack = (moveQty >= sourceQty);
 
-            ItemStack targetStack = container.getItemStack(targetSlot);
+            ItemStack targetStack = tgtRef.container.getItemStack(tgtRef.localSlot);
             boolean targetEmpty = (targetStack == null || ItemStack.isEmpty(targetStack));
             int maxStack = ScrubyInventoryService.DEFAULT_MAX_STACK;
 
             if (targetEmpty) {
-                container.removeItemStackFromSlot(sourceSlot, moveQty);
-                container.addItemStackToSlot(targetSlot, new ItemStack(sourceStack.getItemId(), moveQty));
+                srcRef.container.removeItemStackFromSlot(srcRef.localSlot, moveQty);
+                tgtRef.container.addItemStackToSlot(tgtRef.localSlot, new ItemStack(sourceStack.getItemId(), moveQty));
                 persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
             } else if (targetStack.getItemId().equals(sourceStack.getItemId())) {
                 int canAdd = maxStack - targetStack.getQuantity();
                 if (canAdd <= 0) return;
                 int toMove = Math.min(moveQty, canAdd);
-                container.removeItemStackFromSlot(sourceSlot, toMove);
-                container.addItemStackToSlot(targetSlot, new ItemStack(sourceStack.getItemId(), toMove));
+                srcRef.container.removeItemStackFromSlot(srcRef.localSlot, toMove);
+                tgtRef.container.addItemStackToSlot(tgtRef.localSlot, new ItemStack(sourceStack.getItemId(), toMove));
                 persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
             } else if (fullStack) {
-                // Different item, full stack → swap
-                container.removeItemStackFromSlot(sourceSlot, sourceQty);
-                container.removeItemStackFromSlot(targetSlot, targetStack.getQuantity());
-                container.addItemStackToSlot(sourceSlot, new ItemStack(targetStack.getItemId(), targetStack.getQuantity()));
-                container.addItemStackToSlot(targetSlot, new ItemStack(sourceStack.getItemId(), sourceQty));
+                // Different item, full stack → swap (works across Storage<->Hotbar too)
+                srcRef.container.removeItemStackFromSlot(srcRef.localSlot, sourceQty);
+                tgtRef.container.removeItemStackFromSlot(tgtRef.localSlot, targetStack.getQuantity());
+                srcRef.container.addItemStackToSlot(srcRef.localSlot, new ItemStack(targetStack.getItemId(), targetStack.getQuantity()));
+                tgtRef.container.addItemStackToSlot(tgtRef.localSlot, new ItemStack(sourceStack.getItemId(), sourceQty));
                 persistAndReopen(store, ownerRef, playerRef, ownerUuid, profile);
             } else {
                 // Partial drop onto a different item → reject
